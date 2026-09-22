@@ -1,6 +1,6 @@
 /* HPP Trainer – vanilla JS, no build step. All question content comes from data.enc (built by pipeline/build_data.py). */
 'use strict';
-const DATA_V = '8423d46e76';
+const DATA_V = 'f9d8307d9e';
 const LS_STATE = 'hpp.state.v1', LS_KEY = 'hpp.key.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -33,6 +33,7 @@ const ICON = {
   xs: _svg('<path d="M18 6 6 18"></path><path d="m6 6 12 12"></path>', ' width="16" height="16" stroke-width="2.6"'),
   download: _svg('<path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M4 21h16"></path>'),
   upload: _svg('<path d="M12 21V9"></path><path d="m7 14 5-5 5 5"></path><path d="M4 3h16"></path>'),
+  trend: _svg('<path d="M3 17l6-6 4 4 8-8"></path><path d="M14 7h7v7"></path>', ' width="24" height="24"'),
   trash: _svg('<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path>'),
   info: _svg('<circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><path d="M12 8h.01"></path>'),
   lock: _svg('<rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path>'),
@@ -119,7 +120,7 @@ function route() {
   if (!DATA) return;
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   window.scrollTo(0, 0);
-  const views = { '': renderHome, home: renderHome, quiz: renderQuiz, result: renderResult, history: renderHistory, session: () => renderSession(arg), stats: renderStats, topics: renderTopics, vocab: renderVocab, vsession: renderVSession, search: renderSearch, settings: renderSettings, about: renderAbout, review: () => renderReview(arg), flagged: renderFlagged };
+  const views = { '': renderHome, home: renderHome, quiz: renderQuiz, result: renderResult, history: renderHistory, session: () => renderSession(arg), stats: renderStats, topics: renderTopics, vocab: renderVocab, vsession: renderVSession, search: renderSearch, trends: renderTrends, settings: renderSettings, about: renderAbout, review: () => renderReview(arg), flagged: renderFlagged };
   (views[name] || renderHome)();
 }
 function topbar(title, right = '') { return `<div class="topbar"><button class="iconbtn" data-back aria-label="Zurück">${ICON.back}</button><div class="title">${esc(title)}</div><div class="tb-right">${right}</div></div>`; }
@@ -129,9 +130,9 @@ function haptic(ok) { if (S.settings.haptic && navigator.vibrate) navigator.vibr
 
 // ---------- selection helpers ----------
 function poolQuestions(pools) { return Q.filter((q) => pools[q.pool]); }
-function pickLearning(pools, topic, n) {
+function pickLearning(pools, topic, n, filter) {
   const t = today();
-  const qs = poolQuestions(pools).filter((q) => !topic || q.topic === topic);
+  const qs = poolQuestions(pools).filter((q) => (!topic || q.topic === topic) && (!filter || filter(q)));
   const wrong = [], due = [], fresh = [], rest = [];
   qs.forEach((q) => { const r = S.srs[q.id]; if (!r) fresh.push(q); else if (r.box === 0) wrong.push(q); else if (r.due <= t) due.push(q); else rest.push(q); });
   shuffle(wrong); shuffle(due); shuffle(fresh); rest.sort((a, b) => S.srs[a.id].due - S.srs[b.id].due);
@@ -166,7 +167,7 @@ function renderHome() {
     <div class="statcard"><div><b class="num accent">${streak}</b><span>Tage in Folge</span></div><div><b class="num">${todayOk}<small>/${todayAns.length}</small></b><span>heute richtig</span></div><div><b class="num">${mastered}</b><span>sicher</span></div></div>
     <button class="cta" data-go="learn"><span class="grow"><b class="display">Lernen</b><small>${due} fällig · ${fresh} neu · ${S.settings.len} pro Runde</small></span><span class="ring">${ICON.bolt}</span></button>
     <button class="cta2" data-go="exam"><span class="ico-box">${ICON.cap}</span><span class="grow"><b>Prüfung simulieren</b><small>28 Originalfragen · 21 zum Bestehen</small></span>${ICON.chevron}</button>
-    <div class="tiles">${tile('#/topics', ICON.layers, 'Themen')}${tile('#/vocab', ICON.book, 'Begriffe')}${tile('husum', ICON.wave, 'Husum')}${tile('lika', ICON.bookOpen, 'Likamundi')}${tile('#/history', ICON.clock, 'Verlauf')}${tile('#/stats', ICON.chart, 'Statistik')}</div>
+    <div class="tiles four">${tile('#/topics', ICON.layers, 'Themen')}${tile('#/vocab', ICON.book, 'Begriffe')}${tile('husum', ICON.wave, 'Husum')}${tile('lika', ICON.bookOpen, 'Likamundi')}${tile('#/history', ICON.clock, 'Verlauf')}${tile('#/stats', ICON.chart, 'Statistik')}${tile('#/trends', ICON.trend, 'Trends')}${tile('#/search', ICON.search, 'Suche')}</div>
     ${Object.keys(S.flags).length ? `<button class="cta2" onclick="location.hash='#/flagged'"><span class="ico-box">${ICON.starFill}</span><span class="grow"><b>Markierte Fragen</b><small>${Object.keys(S.flags).length} markiert</small></span>${ICON.chevron}</button>` : ''}
     <p class="hint foot">${c.official} Originalfragen 2018–2026 · ${c.husum} Husum · ${c.likamundi} Likamundi · ${c.vocab + (c.cards || 0)} Begriffe</p>
   </div>`;
@@ -606,6 +607,39 @@ function renderSearch() {
   inp.onkeydown = (e) => { if (e.key === 'Enter') { inp.blur(); addRecent(inp.value); run(); } };
   run();
   if (!searchTerm) setTimeout(() => inp.focus(), 60);
+}
+
+// ---------- trends ----------
+const PERIODS = [['2018–19', 2018, 2019], ['2020–22', 2020, 2022], ['2023–24', 2023, 2024], ['2025–26', 2025, 2026]];
+function renderTrends() {
+  const off = Q.filter((q) => q.pool === 'official');
+  const exams = [...new Map(off.map((q) => [q.date, q.exam])).entries()].sort();
+  const byExam = (d) => off.filter((q) => q.date === d);
+  const shortLabel = (l) => l.replace('Oktober', 'Okt').replace('März', 'Mär');
+  const typeRows = exams.map(([d, l]) => { const ex = byExam(d); const c = { einfach: 0, mehrfach: 0, kombination: 0 }; ex.forEach((q) => c[q.type]++); const v = ex.filter((q) => q.vignette).length;
+    return `<div class="trow"><span class="tl">${esc(shortLabel(l))}</span><span class="stack"><i style="flex:${c.einfach};background:var(--muted)" title="Einfachauswahl ${c.einfach}"></i><i style="flex:${c.mehrfach};background:var(--primary)" title="Mehrfachauswahl ${c.mehrfach}"></i><i style="flex:${c.kombination};background:var(--bar3)" title="Aussagenkombination ${c.kombination}"></i></span><span class="tn">${c.einfach} · <b>${c.mehrfach}</b> · ${c.kombination}</span><span class="tv"><i style="width:${(v / 28) * 100}%"></i></span><span class="tn">${v}</span></div>`; }).join('');
+  const per = PERIODS.map(([name, a, b]) => { const qs = off.filter((q) => { const y = +q.date.slice(0, 4); return y >= a && y <= b; }); const n = new Set(qs.map((q) => q.date)).size; const c = {}; qs.forEach((q) => { c[q.topic] = (c[q.topic] || 0) + 1; }); return { name, n, c }; });
+  const topics = [...new Set(off.map((q) => q.topic))].sort((x, y) => (per[3].c[y] || 0) / per[3].n - (per[3].c[x] || 0) / per[3].n);
+  const topicRows = topics.map((t) => { const vals = per.map((p) => (p.c[t] || 0) / p.n); const d = vals[3] - vals[0]; const tr = d >= 1 ? '<span class="pill ok">steigt</span>' : d <= -1 ? '<span class="pill warn">sinkt</span>' : '<span class="pill gray">stabil</span>';
+    return `<div class="trow topic" onclick="startTopic('${esc(t).replace(/'/g, '&#39;')}')"><span class="tl">${esc(t)}</span><span class="tt">${tr}</span><span class="nums">${vals.map((v) => `<span>${v.toFixed(1).replace('.', ',')}</span>`).join('')}</span></div>`; }).join('');
+  const nM = off.filter((q) => q.type === 'mehrfach').length, nV = off.filter((q) => q.vignette).length;
+  app.innerHTML = `<div class="view">${topbar('Trends')}
+    <p class="muted small">Ausgewertet über ${exams.length} Prüfungen mit ${off.length} Originalfragen. Fragetyp und Datum stehen wörtlich in jeder Frage. Themen sind automatisch per Stichwort zugeordnet und auf Zeiträume gemittelt, einzelne Fragen können daneben liegen.</p>
+    <h2>Gezielt üben</h2>
+    <div class="stack">
+      <button class="btn" id="tM"><span class="ico">${ICON.layers}</span><span class="grow">Nur Mehrfachauswahl<span class="sub">${nM} Fragen · zwei Antworten müssen stimmen</span></span></button>
+      <button class="btn" id="tV"><span class="ico">${ICON.bookOpen}</span><span class="grow">Nur Fallvignetten<span class="sub">${nV} Fragen mit Fallbeschreibung</span></span></button>
+    </div>
+    <h2>Fragetypen je Prüfung</h2>
+    <div class="legend"><span><i style="background:var(--muted)"></i>Einfach</span><span><i style="background:var(--primary)"></i>Mehrfach</span><span><i style="background:var(--bar3)"></i>Kombination</span><span style="margin-left:auto">Vignetten</span></div>
+    <div class="ttable">${typeRows}</div>
+    <p class="muted small">Seit 2025 weniger Aussagenkombinationen, dafür mehr Mehrfachauswahl und mehr Fallvignetten.</p>
+    <h2>Themen im Zeitverlauf</h2>
+    <p class="muted small">Durchschnittliche Fragen pro Prüfung mit 28 Fragen. Antippen startet eine Runde zum Thema.</p>
+    <div class="ttable"><div class="trow head"><span class="nums">${per.map((p) => `<span>${p.name}</span>`).join('')}</span></div>${topicRows}</div>
+  </div>`;
+  $('#tM').onclick = () => startSession({ mode: 'lernen', ids: pickLearning({ official: true }, null, S.settings.len, (q) => q.type === 'mehrfach'), feedback: true, label: 'Mehrfachauswahl' });
+  $('#tV').onclick = () => startSession({ mode: 'lernen', ids: pickLearning({ official: true }, null, S.settings.len, (q) => q.vignette), feedback: true, label: 'Fallvignetten' });
 }
 
 // ---------- settings ----------

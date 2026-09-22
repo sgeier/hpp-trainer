@@ -157,8 +157,10 @@ def main():
 
     # --- topics
     allq = official + husum + lika_out
+    VIG = re.compile(r"\d+\s*-?\s*jährig|Patient|Klient|stellt sich|in Ihrer Praxis|berichtet|Frau [A-Z]\.|Herr [A-Z]\.", re.I)
     for q in allq:
         q["topic"] = tag_topic(q)
+        q["vignette"] = bool(VIG.search(q["stem"]))
         q.setdefault("disputed", False); q.setdefault("expl", {}); q.setdefault("general", ""); q.setdefault("expl_source", "")
     tc = collections.Counter((q["pool"], q["topic"]) for q in allq)
     report.append("topics (official): " + ", ".join(f"{t}={n}" for (p, t), n in sorted(tc.items()) if p == "official"))
