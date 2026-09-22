@@ -110,3 +110,27 @@ details summary { cursor: pointer; font-weight: 600; }
 .small { font-size: 13px; }
 a { color: var(--primary); }
 .warnbox { background: var(--warn-soft); color: var(--text); border-radius: 12px; padding: 10px 12px; font-size: 14px; margin-top: 8px; }
+/* compact quiz + bottom sheet */
+.topbar.compact { min-height: 44px; padding: 6px 0; }
+.qcard { padding: 14px 14px; }
+.qmeta { margin-bottom: 6px; }
+.stem { font-size: 16px; }
+.stem.small { font-size: 15px; line-height: 1.38; }
+.statements { margin-top: 8px; gap: 4px; }
+.statements li { font-size: 15px; }
+.instr { margin-top: 8px; font-size: 13px; }
+.options { gap: 6px; }
+.opt { min-height: 48px; padding: 8px 12px; font-size: 15.5px; border-radius: 14px; }
+.opt .letter { flex: 0 0 30px; height: 30px; font-size: 15px; }
+.options.compact { flex-direction: row; flex-wrap: wrap; }
+.options.compact .opt { flex: 1 1 45%; min-height: 52px; justify-content: flex-start; font-weight: 600; }
+.quiz.has-sheet { padding-bottom: 190px; }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; max-height: 72vh; overflow: auto; margin: 0 auto; max-width: 640px; background: var(--card); border-radius: 22px 22px 0 0; box-shadow: 0 -8px 30px rgba(20,20,40,.18); padding: 14px 16px calc(env(safe-area-inset-bottom) + 14px); animation: sheetup .22s ease; border-top: 4px solid var(--line); }
+.sheet.ok { border-top-color: var(--ok); } .sheet.bad { border-top-color: var(--bad); }
+@keyframes sheetup { from { transform: translateY(100%);} to { transform: none; } }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sheet .head { font-weight: 800; font-size: 18px; }
+.sheet .warnbox { margin-top: 10px; }
+.sheet-expl { margin-top: 10px; }
+.sheet-expl summary { font-size: 14px; color: var(--primary); }
+.sheet .srcline { margin-top: 8px; }

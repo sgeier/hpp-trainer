@@ -169,39 +169,51 @@ function renderQuiz() {
   const n = cur.ids.length, answered = Object.keys(cur.res).length;
   const elapsed = Math.floor((Date.now() - cur.start) / 1000);
   const sid = cur.sid;
-  app.innerHTML = `<div class="view quiz">
-    <div class="topbar">
+  app.innerHTML = `<div class="view quiz${done && cur.feedback ? ' has-sheet' : ''}">
+    <div class="topbar compact">
       <button class="iconbtn" id="qclose" aria-label="Beenden">✕</button>
       <div class="progress"><i style="width:${(answered / n) * 100}%"></i></div>
-      <div class="muted" style="min-width:64px;text-align:right"><span id="qcount">${cur.i + 1}/${n}</span>${cur.mode === 'pruefung' ? ` · <span id="timer">${fmtTime(elapsed)}</span>` : ''}</div>
+      <div class="muted small" style="min-width:56px;text-align:right"><span id="qcount">${cur.i + 1}/${n}</span>${cur.mode === 'pruefung' ? ` · <span id="timer">${fmtTime(elapsed)}</span>` : ''}</div>
       <button class="iconbtn" id="qflag" aria-label="Merken">${S.flags[q.id] ? '⭐️' : '☆'}</button>
     </div>
     <div class="qcard entering" id="qcard">${questionHTML(q)}</div>
-    <div class="options" id="opts">${optionsHTML(q, done ? done.sel : cur.sel, done && cur.feedback ? q : null)}</div>
-    <div id="fb">${done && cur.feedback ? feedbackHTML(q, done.sel) : ''}</div>
-    ${done ? `<div class="bottombar"><button class="btn primary big" id="next">${cur.i + 1 < n ? 'Weiter →' : 'Auswertung'}</button></div>` : `<p class="hint">${q.type === 'mehrfach' ? 'Zwei Antworten antippen' : 'Antwort antippen'}</p>`}
+    <div class="options${compactLabels(q) ? ' compact' : ''}" id="opts">${optionsHTML(q, done ? done.sel : cur.sel, done && cur.feedback ? q : null)}</div>
+    ${done ? '' : `<p class="hint">${q.type === 'mehrfach' ? 'Zwei Antworten antippen' : 'Antwort antippen'}</p>`}
+    ${done && cur.feedback ? sheetHTML(q, done.sel) : ''}
   </div>`;
   $('#qclose').onclick = () => { if (answered === 0) { cur = null; go('#/home'); } else if (confirm('Runde beenden und auswerten?')) finishSession(); };
   $('#qflag').onclick = () => { if (S.flags[q.id]) delete S.flags[q.id]; else S.flags[q.id] = 1; save(); $('#qflag').textContent = S.flags[q.id] ? '⭐️' : '☆'; };
   app.querySelectorAll('.opt').forEach((b) => b.onclick = () => choose(q, b.dataset.k));
-  if (done) $('#next').onclick = next;
+  if (done) bindSheet(q);
   bindSwipe($('#qcard'), q);
   if (cur.mode === 'pruefung') { clearInterval(timerHandle); timerHandle = setInterval(() => { const el = $('#timer'); if (!el || !cur || cur.sid !== sid) { clearInterval(timerHandle); return; } el.textContent = fmtTime(Math.floor((Date.now() - cur.start) / 1000)); }, 1000); }
 }
 function fmtTime(s) { return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
+// Short labels for the standard "Nur die Aussagen 1, 3 und 4 sind richtig" options (derived by fixed patterns only).
+function shortLabel(text) {
+  const t = text.trim().replace(/\.$/, '');
+  let m = t.match(/^Nur die Aussagen? (.+?) (?:ist|sind) richtig$/i); if (m) return m[1];
+  if (/^Alle Aussagen? (?:ist|sind) richtig$/i.test(t)) return 'Alle';
+  if (/^Keine der Aussagen ist richtig$/i.test(t)) return 'Keine';
+  return null;
+}
+function compactLabels(q) { const ls = Object.values(q.options).map(shortLabel); return ls.length === 5 && ls.every(Boolean) ? ls : null; }
 function questionHTML(q) {
-  const meta = [`<span class="pill">${esc(q.topic)}</span>`, `<span class="pill gray">${esc(q.exam)}${q.pool === 'official' ? ' · Nr. ' + q.nr : ''}</span>`, `<span class="pill gray">${TYPE_NAMES[q.type]}</span>`];
+  const meta = `${esc(q.exam)}${q.pool === 'official' ? ' · Nr. ' + q.nr : ''} · ${esc(q.topic)}`;
   const stmts = q.statements && q.statements.length ? `<ol class="statements">${q.statements.map((s, i) => `<li><b>${i + 1}.</b><span>${esc(s)}</span></li>`).join('')}</ol>` : '';
   const instr = q.instruction ? `<div class="instr">${esc(q.instruction)}</div>` : (q.type === 'mehrfach' ? '<div class="instr">Wählen Sie zwei Antworten!</div>' : '');
   const numbered = q.numbered_options ? '<div class="muted small" style="margin-top:6px">Im Original waren die Antworten 1–5 nummeriert.</div>' : '';
-  return `<div class="qmeta">${meta.join('')}</div><div class="stem${q.stem.length > 420 ? ' small' : ''}">${esc(q.stem)}</div>${stmts}${instr}${numbered}`;
+  const long = (q.stem.length + q.statements.join('').length) > 500;
+  return `<div class="qmeta muted small">${meta}</div><div class="stem${long ? ' small' : ''}">${esc(q.stem)}</div>${stmts}${instr}${numbered}`;
 }
 function optionsHTML(q, sel, reveal) {
-  return Object.entries(q.options).map(([k, v]) => {
+  const labels = compactLabels(q);
+  return Object.entries(q.options).map(([k, v], i) => {
     let cls = 'opt'; const chosen = sel.includes(k);
     if (reveal) { const right = q.answer.includes(k); if (right) cls += ' correct'; else if (chosen) cls += ' wrong'; else cls += ' dim'; }
     else if (chosen) cls += ' selected';
-    return `<button class="${cls}" data-k="${k}" ${reveal ? 'disabled' : ''}><span class="letter">${k}</span><span>${esc(v)}</span></button>`;
+    const text = labels ? labels[i] : v;
+    return `<button class="${cls}" data-k="${k}" ${reveal ? 'disabled' : ''} title="${esc(v)}"><span class="letter">${k}</span><span>${esc(text)}</span></button>`;
   }).join('');
 }
 function choose(q, k) {
@@ -218,23 +230,36 @@ function choose(q, k) {
   if (!cur.feedback) { setTimeout(next, 120); return; }
   haptic(ok);
   $('#opts').innerHTML = optionsHTML(q, sel, q);
-  $('#fb').innerHTML = feedbackHTML(q, sel);
   const hint = $('.quiz .hint'); if (hint) hint.remove();
-  $('#fb').insertAdjacentHTML('afterend', `<div class="bottombar"><button class="btn primary big" id="next">${cur.i + 1 < cur.ids.length ? 'Weiter →' : 'Auswertung'}</button></div>`);
-  $('#next').onclick = next;
-  setTimeout(() => $('#fb')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  $('.quiz').classList.add('has-sheet');
+  $('.quiz').insertAdjacentHTML('beforeend', sheetHTML(q, sel));
+  bindSheet(q);
   if (ok) { const streak = recentStreak(); if (streak && streak % 5 === 0) { confetti(60); toast(`${streak} in Folge!`); } }
 }
 function recentStreak() { let n = 0; for (let i = S.answers.length - 1; i >= 0 && S.answers[i].ok; i--) n++; return n; }
-function feedbackHTML(q, sel) {
+function sheetHTML(q, sel) {
   const ok = isCorrect(q, sel);
   const heads = ok ? ['Richtig!', 'Sauber!', 'Genau so.', 'Sitzt.', 'Stark!'] : ['Leider nein.', 'Knapp daneben.', 'Merken!', 'Nochmal anschauen.'];
   const head = heads[Math.floor(Math.random() * heads.length)];
-  return `<div class="feedback ${ok ? 'ok' : 'bad'}"><div class="head">${head} <span class="muted" style="font-weight:600">Lösung: ${q.answer.join(' + ')}</span></div>${explHTML(q)}</div>`;
+  const hasExpl = Object.keys(q.expl || {}).length || q.general;
+  const labels = compactLabels(q);
+  const answerText = q.answer.map((k) => `${k}${labels ? '' : ''}`).join(' + ');
+  return `<div class="sheet ${ok ? 'ok' : 'bad'}" id="sheet">
+    <div class="sheet-head"><div><div class="head">${head}</div><div class="small">Lösung: <b>${answerText}</b>${labels ? ` <span class="muted">(${esc(q.answer.map((k) => labels['ABCDE'.indexOf(k)]).join(' / '))})</span>` : ''}</div></div>
+      <button class="btn primary" id="next" style="width:auto;min-width:130px">${cur.i + 1 < cur.ids.length ? 'Weiter →' : 'Auswertung'}</button></div>
+    ${q.disputed ? `<div class="warnbox">⚠️ Schulen uneins: ${esc(Object.entries(q.keys).map(([s, a]) => `${s}: ${a}`).join(' · '))}</div>` : ''}
+    ${hasExpl ? `<details class="sheet-expl"><summary>Erklärung anzeigen</summary>${explHTML(q)}</details>` : `<div class="srcline">Lösung laut ${esc(Object.entries(q.keys).map(([s, a]) => `${s} (${a})`).join(', '))} – ohne Gewähr</div>`}
+  </div>`;
+}
+function bindSheet(q) {
+  const nx = $('#next'); if (nx) nx.onclick = next;
+  const sh = $('#sheet'); if (!sh) return;
+  let x0 = null;
+  sh.addEventListener('pointerdown', (e) => { x0 = e.clientX; }, { passive: true });
+  sh.addEventListener('pointerup', (e) => { if (x0 !== null && e.clientX - x0 < -70) next(); x0 = null; });
 }
 function explHTML(q) {
   let h = '';
-  if (q.disputed) h += `<div class="warnbox">⚠️ Die Lösungsschlüssel der Schulen sind hier uneinheitlich: ${esc(Object.entries(q.keys).map(([s, a]) => `${s}: ${a}`).join(' · '))}. Im Zweifel beide Lesarten nachlesen.</div>`;
   const ex = q.expl || {}; const keys = Object.keys(ex);
   if (keys.length || q.general) {
     h += `<div class="expl">${keys.map((k) => `<div class="o"><b>${k})</b> ${esc(ex[k])}</div>`).join('')}${q.general ? `<div class="o">${esc(q.general)}</div>` : ''}</div>`;
@@ -299,7 +324,7 @@ function renderReview(id) {
   app.innerHTML = `<div class="view quiz">${topbar('Frage ansehen', `<button class="iconbtn" id="qflag">${S.flags[q.id] ? '⭐️' : '☆'}</button>`)}
     <div class="qcard">${questionHTML(q)}</div>
     <div class="options">${optionsHTML(q, last ? last.a : [], q)}</div>
-    <div class="feedback neutral"><div class="head">Lösung: ${q.answer.join(' + ')}</div>${explHTML(q)}</div>
+    <div class="feedback neutral"><div class="head">Lösung: ${q.answer.join(' + ')}</div>${q.disputed ? `<div class="warnbox">⚠️ Schulen uneins: ${esc(Object.entries(q.keys).map(([s, a]) => `${s}: ${a}`).join(' · '))}</div>` : ''}${explHTML(q)}</div>
     ${hist.length ? `<div class="card"><b>Deine Versuche</b>${hist.map((a) => `<div class="small muted">${fmtDate(a.t)} · ${a.a.join('+')} ${a.ok ? '✅' : '❌'}</div>`).join('')}</div>` : ''}
     <div class="bottombar"><button class="btn primary" data-back>Zurück</button></div>
   </div>`;
