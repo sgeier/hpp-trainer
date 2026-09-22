@@ -1,6 +1,6 @@
 /* HPP Trainer – vanilla JS, no build step. All question content comes from data.enc (built by pipeline/build_data.py). */
 'use strict';
-const DATA_V = '41dc83b6d6';
+const DATA_V = 'd2dbb645d2';
 const LS_STATE = 'hpp.state.v1', LS_KEY = 'hpp.key.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -53,7 +53,7 @@ function loadState() {
 }
 function withDefaults(s) {
   s.answers ||= []; s.vanswers ||= []; s.srs ||= {}; s.sessions ||= []; s.flags ||= {}; s.vocab ||= {};
-  s.settings = Object.assign({ len: 20, pools: { official: true, husum: false, likamundi: true }, theme: 'auto', haptic: true, examTimer: 0 }, s.settings || {});
+  s.settings = Object.assign({ len: 20, pools: { official: true, husum: false, likamundi: true }, theme: 'auto', haptic: true, examTimer: 0, vocabMode: 'quiz' }, s.settings || {});
   return s;
 }
 function save() { try { localStorage.setItem(LS_STATE, JSON.stringify(S)); } catch (e) { toast('Speichern fehlgeschlagen (Speicher voll?)'); } }
@@ -433,6 +433,14 @@ function pickVocab(deck, n) {
   shuffle(wrong); shuffle(due); shuffle(fresh); rest.sort((a, b) => vState(a.k).due - vState(b.k).due);
   return [...wrong, ...due, ...fresh, ...rest].slice(0, n).map((c) => c.k);
 }
+const _words = (t) => new Set(normS(t).split(/[^a-z0-9]+/).filter((w) => w.length >= 4));
+function pickDistractors(c, n) {
+  const cw = _words(c.text);
+  const ok = (x) => { if (x.k === c.k || x.deck !== c.deck || !x.text || normS(x.text) === normS(c.text) || normS(x.term) === normS(c.term)) return false; const xw = _words(x.text); let shared = 0; xw.forEach((w) => { if (cw.has(w)) shared++; }); return shared / Math.max(1, Math.min(cw.size, xw.size)) < 0.34; };
+  const same = shuffle(VC.filter((x) => ok(x) && x.category && x.category === c.category));
+  const other = shuffle(VC.filter((x) => ok(x) && !(x.category && x.category === c.category)));
+  return [...same, ...other].slice(0, n).map((x) => x.text);
+}
 function deckStats(deck) {
   const t = today(); let n = 0, seen = 0, mastered = 0, due = 0;
   VC.forEach((c) => { if (c.deck !== deck) return; n++; const r = vState(c.k); if (r) { seen++; if (r.box >= 3) mastered++; if (r.box === 0 || r.due <= t) due++; } });
@@ -442,17 +450,19 @@ function renderVocab() {
   const q = deckStats('Fachbegriffe');
   app.innerHTML = `<div class="view">${topbar('Begriffe')}
     <button class="cta" id="vquiz"><span class="grow"><b class="display">Begriffe-Quiz</b><small>${q.n} Fachbegriffe · ${q.due} fällig · ${q.n - q.seen} neu · ${S.settings.len} pro Runde</small></span><span class="ring">${ICON.bolt}</span></button>
-    <p class="muted small" style="margin:10px 2px 2px">Karteikarten: Begriff sehen, antippen zum Aufdecken, dann „Wusste ich“ oder „Nochmal“. Falsche kommen sofort wieder, richtige nach 1, 3, 7, 14 und 30 Tagen.</p>
+    <div class="seg" id="vmode" style="margin-top:12px"><button class="${S.settings.vocabMode !== 'cards' ? 'on' : ''}" data-m="quiz">Auswahl (3 Antworten)</button><button class="${S.settings.vocabMode === 'cards' ? 'on' : ''}" data-m="cards">Karteikarten</button></div>
+    <p class="muted small" style="margin:8px 2px 2px">${S.settings.vocabMode === 'cards' ? 'Begriff sehen, antippen zum Aufdecken, dann „Wusste ich“ oder „Nochmal“.' : 'Begriff oben, drei Erklärungen zur Auswahl. Die falschen sind echte Erklärungen anderer Begriffe aus derselben Liste.'} Falsche kommen sofort wieder, richtige nach 1, 3, 7, 14 und 30 Tagen.</p>
     <div class="list">${DECKS.map((d) => { const s = deckStats(d); if (!s.n) return ''; return `<div class="row" data-deck="${d}"><div class="grow"><div class="t">${d}</div><div class="s">${s.n} Karten · ${s.due} fällig · ${s.mastered} sicher · ${esc(DECK_INFO[d] || '')}</div><div class="bar" style="margin-top:6px"><i style="width:${(s.mastered / s.n) * 100}%"></i></div></div>${ICON.chevron}</div>`; }).join('')}</div>
   </div>`;
   $('#vquiz').onclick = () => startVocab('quiz', 'Fachbegriffe');
-  app.querySelectorAll('[data-deck]').forEach((r) => r.onclick = () => startVocab('cards', r.dataset.deck));
+  app.querySelectorAll('[data-deck]').forEach((r) => r.onclick = () => startVocab(S.settings.vocabMode === 'cards' ? 'cards' : 'quiz', r.dataset.deck));
+  $('#vmode').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; S.settings.vocabMode = b.dataset.m; save(); renderVocab(); };
 }
 let vs = null;
 function startVocab(kind, deck, keys) {
   const items = keys || pickVocab(deck, S.settings.len);
   if (!items.length) { toast('Keine Karten in diesem Stapel'); return; }
-  vs = { sid: Date.now().toString(36), kind, deck, items, i: 0, res: {}, start: Date.now(), revealed: false, flip: items.map(() => Math.random() < 0.5) };
+  vs = { sid: Date.now().toString(36), kind, deck, items, i: 0, res: {}, start: Date.now(), revealed: false, flip: items.map(() => false) };
   go('#/vsession');
 }
 function renderVSession() {
@@ -463,10 +473,10 @@ function renderVSession() {
   const head = `<div class="topbar compact"><button class="iconbtn" id="qclose" aria-label="Beenden">${ICON.x}</button><div class="progress"><i style="width:${(answered / n) * 100}%"></i></div><div class="tb-right" style="min-width:56px;justify-content:flex-end"><span>${vs.i + 1}<span class="muted">/${n}</span></span></div><div style="width:44px"></div></div>`;
   if (vs.kind === 'quiz') {
     const v = c.quiz;
-    const opts = vs.opts || (vs.opts = shuffle([{ t: v.correct, ok: true }, { t: v.distractor, ok: false }]));
+    const opts = vs.opts || (vs.opts = shuffle(v ? [{ t: v.correct, ok: true }, { t: v.distractor, ok: false }] : [{ t: c.text, ok: true }, ...pickDistractors(c, 2).map((t) => ({ t, ok: false }))]));
     app.innerHTML = `<div class="view quiz">${head}
       <div class="vocab-card"><div class="cat">${esc(c.category || 'Begriff')}</div><div class="term">${esc(c.term)}</div>${c.note ? `<div class="mnemo">${ICON.bulb}<span>${esc(c.note)}</span></div>` : ''}</div>
-      <div class="options">${opts.map((o, i) => `<button class="opt tall" data-ok="${o.ok}"><span class="letter">${'AB'[i]}</span><span>${esc(o.t)}</span></button>`).join('')}</div>
+      <div class="options">${opts.map((o, i) => `<button class="opt tall" data-ok="${o.ok}"><span class="letter">${'ABC'[i]}</span><span>${esc(o.t)}</span></button>`).join('')}</div>
       <div id="fb"></div>
       <p class="hint">Antippen – geht automatisch weiter</p>
     </div>`;
@@ -475,7 +485,8 @@ function renderVSession() {
       const ok = b.dataset.ok === 'true';
       app.querySelectorAll('.opt').forEach((x) => { x.disabled = true; x.classList.add(x.dataset.ok === 'true' ? 'correct' : (x === b ? 'wrong' : 'dim')); });
       vs.res[c.k] = { ok }; vUpdate(c.k, ok); save(); haptic(ok);
-      if (c.text) $('#fb').innerHTML = `<div class="feedback neutral"><div class="small" style="font-weight:600">${esc(c.text)}</div></div>`;
+      if (v && c.text) $('#fb').innerHTML = `<div class="feedback neutral"><div class="small" style="font-weight:600">${esc(c.text)}</div></div>`;
+      else if (c.note) $('#fb').innerHTML = `<div class="feedback neutral"><div class="small" style="font-weight:600">${esc(c.note)}</div></div>`;
       setTimeout(() => { vs.i++; vs.opts = null; renderVSession(); }, ok ? 700 : 1600);
     });
   } else {
@@ -599,6 +610,7 @@ function renderAbout() {
       <p><b>Fragen</b> sind wortgleich aus den PDFs der schriftlichen Heilpraktikerprüfungen (Psychotherapie) März 2018 bis März 2026 übernommen, dazu die Prüfungen des Gesundheitsamts Nordfriesland (Husum) 2018–2025 und kommentierte Übungsfragen der Heilpraktikerschule Likamundi.</p>
       <p><b>Lösungen</b> stammen nicht von den Behörden, sondern von Schulen (Institut Ehlert, heilpraktiker-akademie.de, ON, Margit Allmeroth, Likamundi) und sind „ohne Gewähr“. Wo sich die Schlüssel widersprechen, zeigt die App eine Warnung mit allen Lesarten.</p>
       <p><b>Erklärungen</b> gibt es nur, wo eine Quelle vorliegt (Likamundi-Kommentare). Nichts in dieser App wurde frei formuliert.</p>
+      <p><b>Begriffe</b>: Bei den Fachbegriffen stammen die falschen Antworten aus der Excel-Liste. Bei den anderen Stapeln sind die falschen Antworten echte Erklärungen anderer Begriffe derselben Liste, zufällig gewählt und gegen zu ähnliche Texte gefiltert.</p>
       <p><b>Themen</b> sind automatisch per Stichwort zugeordnet und können daneben liegen.</p>
       <p><b>Wertung</b>: 1 Punkt pro vollständig richtig beantworteter Frage, 21 von 28 zum Bestehen.</p>
       <p><b>Speicherung</b>: Dein Fortschritt liegt nur auf diesem Gerät (Browser-Speicher). Sicherung über Einstellungen ▸ Exportieren.</p>
