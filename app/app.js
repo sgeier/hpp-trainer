@@ -179,7 +179,7 @@ function renderQuiz() {
     <div class="qcard entering" id="qcard">${questionHTML(q)}</div>
     <div class="options" id="opts">${optionsHTML(q, done ? done.sel : cur.sel, done && cur.feedback ? q : null)}</div>
     <div id="fb">${done && cur.feedback ? feedbackHTML(q, done.sel) : ''}</div>
-    <div class="bottombar">${done ? `<button class="btn primary big" id="next">${cur.i + 1 < n ? 'Weiter →' : 'Auswertung'}</button>` : (q.type === 'mehrfach' ? `<p class="hint" style="width:100%">Zwei Antworten antippen</p>` : `<p class="hint" style="width:100%">Antwort antippen – Wischen für Weiter</p>`)}</div>
+    ${done ? `<div class="bottombar"><button class="btn primary big" id="next">${cur.i + 1 < n ? 'Weiter →' : 'Auswertung'}</button></div>` : `<p class="hint">${q.type === 'mehrfach' ? 'Zwei Antworten antippen' : 'Antwort antippen'}</p>`}
   </div>`;
   $('#qclose').onclick = () => { if (answered === 0) { cur = null; go('#/home'); } else if (confirm('Runde beenden und auswerten?')) finishSession(); };
   $('#qflag').onclick = () => { if (S.flags[q.id]) delete S.flags[q.id]; else S.flags[q.id] = 1; save(); $('#qflag').textContent = S.flags[q.id] ? '⭐️' : '☆'; };
@@ -219,8 +219,10 @@ function choose(q, k) {
   haptic(ok);
   $('#opts').innerHTML = optionsHTML(q, sel, q);
   $('#fb').innerHTML = feedbackHTML(q, sel);
-  $('.bottombar').innerHTML = `<button class="btn primary big" id="next">${cur.i + 1 < cur.ids.length ? 'Weiter →' : 'Auswertung'}</button>`;
+  const hint = $('.quiz .hint'); if (hint) hint.remove();
+  $('#fb').insertAdjacentHTML('afterend', `<div class="bottombar"><button class="btn primary big" id="next">${cur.i + 1 < cur.ids.length ? 'Weiter →' : 'Auswertung'}</button></div>`);
   $('#next').onclick = next;
+  setTimeout(() => $('#fb')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
   if (ok) { const streak = recentStreak(); if (streak && streak % 5 === 0) { confetti(60); toast(`${streak} in Folge!`); } }
 }
 function recentStreak() { let n = 0; for (let i = S.answers.length - 1; i >= 0 && S.answers[i].ok; i--) n++; return n; }
