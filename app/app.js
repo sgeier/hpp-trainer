@@ -1,6 +1,6 @@
 /* HPP Trainer – vanilla JS, no build step. All question content comes from data.enc (built by pipeline/build_data.py). */
 'use strict';
-const DATA_V = 'f9d8307d9e';
+const DATA_V = '6042518a09';
 const LS_STATE = 'hpp.state.v1', LS_KEY = 'hpp.key.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -123,8 +123,9 @@ function route() {
   const views = { '': renderHome, home: renderHome, quiz: renderQuiz, result: renderResult, history: renderHistory, session: () => renderSession(arg), stats: renderStats, topics: renderTopics, vocab: renderVocab, vsession: renderVSession, search: renderSearch, trends: renderTrends, settings: renderSettings, about: renderAbout, review: () => renderReview(arg), flagged: renderFlagged };
   (views[name] || renderHome)();
 }
-function topbar(title, right = '') { return `<div class="topbar"><button class="iconbtn" data-back aria-label="Zurück">${ICON.back}</button><div class="title">${esc(title)}</div><div class="tb-right">${right}</div></div>`; }
-app.addEventListener('click', (e) => { const b = e.target.closest('[data-back]'); if (b) { e.preventDefault(); if (history.length > 1) history.back(); else go('#/home'); } });
+// every back arrow has an explicit target; 'history' uses the browser history with a fallback to home
+function topbar(title, right = '', back = '#/home') { return `<div class="topbar"><button class="iconbtn" data-back="${back}" aria-label="Zurück">${ICON.back}</button><div class="title">${esc(title)}</div><div class="tb-right">${right}</div></div>`; }
+app.addEventListener('click', (e) => { const b = e.target.closest('[data-back]'); if (!b) return; e.preventDefault(); const t = b.dataset.back || '#/home'; if (t === 'history') { if (history.length > 1) history.back(); else go('#/home'); } else go(t); });
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 1800); }
 function haptic(ok) { if (S.settings.haptic && navigator.vibrate) navigator.vibrate(ok ? 12 : [25, 35, 25]); }
 
@@ -305,8 +306,9 @@ function explHTML(q) {
   return h;
 }
 function next() {
+  if (!cur) return;
   const card = $('#qcard'); if (card) card.classList.add('leaving');
-  setTimeout(() => { cur.i++; cur.sel = []; renderQuiz(); }, 160);
+  setTimeout(() => { if (!cur) return; cur.i++; cur.sel = []; renderQuiz(); }, 160);
 }
 function bindSwipe(card, q) {
   let x0 = null, dx = 0;
@@ -331,7 +333,7 @@ function renderResult() {
 }
 function renderSession(sid, fresh = false) {
   const s = S.sessions.find((x) => x.sid === sid); if (!s) { go('#/history'); return; }
-  if (s.mode === 'begriffe') { renderVocabSession(s); return; }
+  if (s.mode === 'begriffe') { renderVocabSession(s, fresh); return; }
   const pct = s.n ? Math.round((s.ok / s.n) * 100) : 0;
   const exam = s.mode === 'pruefung';
   const full = s.n === (DATA.meta.exam_size || 28);
@@ -340,7 +342,7 @@ function renderSession(sid, fresh = false) {
   s.items.forEach((it) => { const q = QBY[it.q]; if (!q) return; const b = byTopic[q.topic] ||= { n: 0, ok: 0 }; b.n++; if (it.ok) b.ok++; });
   const verdict = exam ? (full ? (passed ? `<span class="pill ok">${ICON.check} Bestanden</span>` : `<span class="pill bad">${ICON.xs} Nicht bestanden</span>`) : '<span class="pill gray">Abgebrochen</span>') : `<span class="pill ${pct >= 75 ? 'ok' : 'warn'}">${pct} %</span>`;
   const wrong = s.items.filter((i) => !i.ok).length;
-  app.innerHTML = `<div class="view">${topbar(s.label || 'Runde')}
+  app.innerHTML = `<div class="view">${topbar(s.label || 'Runde', '', fresh ? '#/home' : '#/history')}
     <div class="card scorecard">
       <div class="score">${s.ok}<small>/${s.n}</small></div>
       ${verdict}
@@ -362,12 +364,12 @@ function renderReview(id) {
   const q = QBY[id]; if (!q) { go('#/home'); return; }
   const hist = S.answers.filter((a) => a.q === id).slice(-5).reverse();
   const last = hist[0];
-  app.innerHTML = `<div class="view quiz">${topbar('Frage ansehen', `<button class="iconbtn" id="qflag">${S.flags[q.id] ? ICON.starFill : ICON.star}</button>`)}
+  app.innerHTML = `<div class="view quiz">${topbar('Frage ansehen', `<button class="iconbtn" id="qflag">${S.flags[q.id] ? ICON.starFill : ICON.star}</button>`, 'history')}
     <div class="qcard">${questionHTML(q)}</div>
     <div class="options">${optionsHTML(q, last ? last.a : [], q)}</div>
     <div class="feedback neutral"><div class="head">Lösung ${q.answer.join(' + ')}</div>${q.disputed ? `<div class="warnbox">Schulen uneins: ${esc(Object.entries(q.keys).map(([s, a]) => `${s}: ${a}`).join(' · '))}</div>` : ''}${explHTML(q)}</div>
     ${hist.length ? `<div class="card"><b>Deine Versuche</b>${hist.map((a) => `<div class="small muted" style="display:flex;align-items:center;gap:6px;margin-top:4px"><span class="badge ${a.ok ? 'ok' : 'bad'}" style="width:20px;height:20px;flex-basis:20px">${a.ok ? ICON.check : ICON.xs}</span>${fmtDate(a.t)} · ${a.a.join('+')}</div>`).join('')}</div>` : ''}
-    <div class="bottombar"><button class="btn primary" data-back>Zurück</button></div>
+    <div class="bottombar"><button class="btn primary" data-back="history">Zurück</button></div>
   </div>`;
   $('#qflag').onclick = () => { if (S.flags[q.id]) delete S.flags[q.id]; else S.flags[q.id] = 1; save(); $('#qflag').innerHTML = S.flags[q.id] ? ICON.starFill : ICON.star; };
 }
@@ -496,7 +498,7 @@ function renderVSession() {
       vs.res[c.k] = { ok }; vUpdate(c.k, ok); save(); haptic(ok);
       if (v && c.text) $('#fb').innerHTML = `<div class="feedback neutral"><div class="small" style="font-weight:600">${esc(c.text)}</div></div>`;
       else if (c.note) $('#fb').innerHTML = `<div class="feedback neutral"><div class="small" style="font-weight:600">${esc(c.note)}</div></div>`;
-      setTimeout(() => { vs.i++; vs.opts = null; renderVSession(); }, ok ? 700 : 1600);
+      setTimeout(() => { if (!vs) return; vs.i++; vs.opts = null; renderVSession(); }, ok ? 700 : 1600);
     });
   } else {
     const flipped = vs.flip[vs.i] && c.deck !== 'Wortbausteine';
@@ -511,7 +513,7 @@ function renderVSession() {
     </div>`;
     const flash = $('#flash');
     flash.onclick = () => { if (!vs.revealed) { vs.revealed = true; renderVSession(); } };
-    const rate = (ok) => { if (vs.res[c.k]) return; vs.res[c.k] = { ok }; vUpdate(c.k, ok); save(); haptic(ok); flash.classList.add(ok ? 'swipe-r' : 'swipe-l'); setTimeout(() => { vs.i++; vs.revealed = false; renderVSession(); }, 180); };
+    const rate = (ok) => { if (vs.res[c.k]) return; vs.res[c.k] = { ok }; vUpdate(c.k, ok); save(); haptic(ok); flash.classList.add(ok ? 'swipe-r' : 'swipe-l'); setTimeout(() => { if (!vs) return; vs.i++; vs.revealed = false; renderVSession(); }, 180); };
     if (vs.revealed) { $('#no').onclick = () => rate(false); $('#yes').onclick = () => rate(true); }
     let x0 = null, dx = 0;
     flash.addEventListener('pointerdown', (e) => { x0 = e.clientX; dx = 0; }, { passive: true });
@@ -527,10 +529,10 @@ function finishVocab() {
   S.sessions.unshift({ sid: vs.sid, mode: 'begriffe', kind: vs.kind, deck: vs.deck, label: `${vs.deck} · ${vs.kind === 'quiz' ? 'Quiz' : 'Karten'}`, t: vs.start, dur: Date.now() - vs.start, n: items.length, ok, items: items.map((k) => ({ k, ok: vs.res[k].ok })) });
   save(); vs = null; go('#/result');
 }
-function renderVocabSession(s) {
+function renderVocabSession(s, fresh = false) {
   const pct = s.n ? Math.round((s.ok / s.n) * 100) : 0;
   const wrong = s.items.filter((i) => !i.ok);
-  app.innerHTML = `<div class="view">${topbar(s.label)}
+  app.innerHTML = `<div class="view">${topbar(s.label, '', fresh ? '#/vocab' : '#/history')}
     <div class="card scorecard"><div class="score">${s.ok}<small>/${s.n}</small></div><span class="pill ${pct >= 75 ? 'ok' : 'warn'}">${pct} %</span><div class="muted strong small">${fmtDate(s.t)} · ${fmtTime(Math.round(s.dur / 1000))}</div></div>
     <div class="stack" style="margin-top:12px">
       ${wrong.length ? `<button class="btn primary big" id="redo">Nochmal üben (${wrong.length})</button>` : ''}
@@ -675,7 +677,7 @@ function renderSettings() {
   $('#lock').onclick = async () => { localStorage.removeItem(LS_KEY); await idbSet('key', null); location.hash = ''; location.reload(); };
 }
 function renderAbout() {
-  app.innerHTML = `<div class="view">${topbar('Quellen & Hinweise')}
+  app.innerHTML = `<div class="view">${topbar('Quellen & Hinweise', '', '#/settings')}
     <div class="card small" style="user-select:text;-webkit-user-select:text">
       <p><b>Fragen</b> sind wortgleich aus den PDFs der schriftlichen Heilpraktikerprüfungen (Psychotherapie) März 2018 bis März 2026 übernommen, dazu die Prüfungen des Gesundheitsamts Nordfriesland (Husum) 2018–2025 und kommentierte Übungsfragen der Heilpraktikerschule Likamundi.</p>
       <p><b>Lösungen</b> stammen nicht von den Behörden, sondern von Schulen (Institut Ehlert, heilpraktiker-akademie.de, ON, Margit Allmeroth, Likamundi) und sind „ohne Gewähr“. Wo sich die Schlüssel widersprechen, zeigt die App eine Warnung mit allen Lesarten.</p>
