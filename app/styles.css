@@ -4,20 +4,20 @@
   --primary: #c9441c; --primary-soft: #fbe7df; --ok: #1e8e5a; --ok-soft: #ddf3e6; --ok-text: #14603c;
   --bad: #c93a3a; --bad-soft: #fbe1e1; --warn: #c98a1b; --warn-soft: #fcefd3;
   --shadow: 0 8px 24px rgba(60,40,20,.08); --shadow-accent: 0 12px 28px rgba(201,68,28,.28);
-  --radius: 20px; --tap: 54px;
+  --radius: 20px; --tap: 54px; --letter-bg: #f0eae0;
   --serif: Fraunces, Georgia, "Times New Roman", serif; --sans: Manrope, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #171512; --card: #221f1a; --text: #f3eee6; --muted: #a39c90; --line: #3a352d; --line-soft: #2e2a24;
   --primary: #e0633a; --primary-soft: #3b241a; --ok: #3fbf84; --ok-soft: #173a2a; --ok-text: #8fe2b8;
   --bad: #f06a6a; --bad-soft: #44201f; --warn: #e5a93a; --warn-soft: #3e2f14;
-  --shadow: 0 8px 24px rgba(0,0,0,.35); --shadow-accent: 0 12px 28px rgba(224,99,58,.3);
+  --shadow: 0 8px 24px rgba(0,0,0,.35); --shadow-accent: 0 12px 28px rgba(224,99,58,.3); --letter-bg: #35302a;
 }}
 :root[data-theme="dark"] {
   --bg: #171512; --card: #221f1a; --text: #f3eee6; --muted: #a39c90; --line: #3a352d; --line-soft: #2e2a24;
   --primary: #e0633a; --primary-soft: #3b241a; --ok: #3fbf84; --ok-soft: #173a2a; --ok-text: #8fe2b8;
   --bad: #f06a6a; --bad-soft: #44201f; --warn: #e5a93a; --warn-soft: #3e2f14;
-  --shadow: 0 8px 24px rgba(0,0,0,.35); --shadow-accent: 0 12px 28px rgba(224,99,58,.3);
+  --shadow: 0 8px 24px rgba(0,0,0,.35); --shadow-accent: 0 12px 28px rgba(224,99,58,.3); --letter-bg: #35302a;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 16px; line-height: 1.4; overscroll-behavior-y: none; }
@@ -92,16 +92,17 @@ p { margin: 6px 0; }
 .qcard.entering { animation: enter .22s ease; }
 @keyframes enter { from { opacity: 0; transform: translateX(50px);} to { opacity: 1; transform: none; } }
 .qmeta { font-size: 11.5px; font-weight: 700; color: var(--muted); letter-spacing: .03em; text-transform: uppercase; }
-.stem { font-size: 17px; font-weight: 700; line-height: 1.35; white-space: pre-line; }
-.stem.small { font-size: 15px; font-weight: 600; line-height: 1.4; }
-.statements { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
-.statements li { display: flex; gap: 10px; font-size: 15px; line-height: 1.4; }
+.stem { font-size: 16.5px; font-weight: 500; line-height: 1.5; white-space: pre-line; }
+.stem b { font-weight: 800; }
+.stem.small { font-size: 15.5px; line-height: 1.5; }
+.statements { margin: 2px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.statements li { display: flex; gap: 12px; font-size: 15.5px; line-height: 1.5; font-weight: 500; }
 .statements li b { font-family: var(--serif); color: var(--primary); min-width: 16px; font-size: 16px; }
 .instr { font-size: 12px; font-weight: 700; color: var(--muted); }
 .options { display: flex; flex-direction: column; gap: 8px; }
-.opt { display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 8px 12px; border-radius: 16px; border: 2px solid var(--line); background: var(--card); font-size: 15.5px; font-weight: 600; line-height: 1.35; text-align: left; cursor: pointer; transition: transform .08s ease, background .12s, border-color .12s; }
+.opt { display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 8px 12px; border-radius: 16px; border: 2px solid var(--line); background: var(--card); font-size: 15.5px; font-weight: 600; line-height: 1.4; text-align: left; cursor: pointer; transition: transform .08s ease, background .12s, border-color .12s; }
 .opt:active { transform: scale(.985); }
-.opt .letter { flex: 0 0 30px; height: 30px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--serif); font-weight: 700; font-size: 15px; background: var(--bg); color: var(--text); }
+.opt .letter { flex: 0 0 30px; height: 30px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--serif); font-weight: 700; font-size: 15px; background: var(--letter-bg); color: var(--text); }
 .opt.selected { border-color: var(--primary); background: var(--primary-soft); }
 .opt.correct { border-color: var(--ok); background: var(--ok-soft); }
 .opt.correct .letter { background: var(--ok); color: #fff; }

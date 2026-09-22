@@ -1,6 +1,6 @@
 /* HPP Trainer – vanilla JS, no build step. All question content comes from data.enc (built by pipeline/build_data.py). */
 'use strict';
-const DATA_V = '96b56e9eab';
+const DATA_V = '8423d46e76';
 const LS_STATE = 'hpp.state.v1', LS_KEY = 'hpp.key.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -52,7 +52,7 @@ function loadState() {
   return withDefaults({});
 }
 function withDefaults(s) {
-  s.answers ||= []; s.vanswers ||= []; s.srs ||= {}; s.sessions ||= []; s.flags ||= {}; s.vocab ||= {};
+  s.answers ||= []; s.vanswers ||= []; s.recent ||= []; s.srs ||= {}; s.sessions ||= []; s.flags ||= {}; s.vocab ||= {};
   s.settings = Object.assign({ len: 20, pools: { official: true, husum: false, likamundi: true }, theme: 'auto', haptic: true, examTimer: 0, vocabMode: 'quiz' }, s.settings || {});
   return s;
 }
@@ -77,7 +77,7 @@ async function idbSet(k, v) { try { const db = await idb(); db.transaction('kv',
 async function storeKey(raw) { const b = btoa(String.fromCharCode(...raw)); try { localStorage.setItem(LS_KEY, b); } catch (e) { /* ignore */ } await idbSet('key', b); try { await navigator.storage?.persist?.(); } catch (e) { /* ignore */ } }
 async function fetchEnc() { const r = await fetch('data.enc?v=' + DATA_V, { cache: 'force-cache' }); if (!r.ok) throw new Error('data.enc fehlt'); return r.json(); }
 function setData(d) {
-  DATA = d; Q = d.questions; QBY = {}; Q.forEach((q) => { QBY[q.id] = q; }); VOCAB = d.vocab || []; buildVocab(); SIDX = null;
+  DATA = d; Q = d.questions; QBY = {}; Q.forEach((q) => { QBY[q.id] = q; }); VOCAB = d.vocab || []; buildVocab(); SIDX = null; SUGG = null;
 }
 async function boot() {
   applyTheme();
@@ -228,13 +228,18 @@ function shortLabel(text) {
   return null;
 }
 function compactLabels(q) { const ls = Object.values(q.options).map(shortLabel); return ls.length === 5 && ls.every(Boolean) ? ls : null; }
+// Sentences that end with "?" are the actual question and get emphasis; case vignettes stay regular weight.
+function stemHTML(stem) {
+  const parts = stem.match(/[^.!?]+[.!?]+["“”]?\s*|[^.!?]+$/g) || [stem];
+  return parts.map((t) => /\?["“”]?\s*$/.test(t) ? `<b>${esc(t)}</b>` : esc(t)).join('');
+}
 function questionHTML(q) {
   const meta = `${esc(q.exam)}${q.pool === 'official' ? ' · Nr. ' + q.nr : ''} · ${esc(q.topic)}`;
   const stmts = q.statements && q.statements.length ? `<ol class="statements">${q.statements.map((s, i) => `<li><b>${i + 1}</b><span>${esc(s)}</span></li>`).join('')}</ol>` : '';
   const instr = q.instruction ? `<div class="instr">${esc(q.instruction)}</div>` : (q.type === 'mehrfach' ? '<div class="instr">Wählen Sie zwei Antworten!</div>' : '');
   const numbered = q.numbered_options ? '<div class="muted small" style="margin-top:6px">Im Original waren die Antworten 1–5 nummeriert.</div>' : '';
   const long = (q.stem.length + q.statements.join('').length) > 500;
-  return `<div class="qmeta">${meta}</div><div class="stem${long ? ' small' : ''}">${esc(q.stem)}</div>${stmts}${instr}${numbered}`;
+  return `<div class="qmeta">${meta}</div><div class="stem${long ? ' small' : ''}">${stemHTML(q.stem)}</div>${stmts}${instr}${numbered}`;
 }
 function optionsHTML(q, sel, reveal) {
   const labels = compactLabels(q);
@@ -538,7 +543,27 @@ function renderVocabSession(s) {
 
 
 // ---------- search ----------
-let SIDX = null, searchTerm = '';
+let SIDX = null, searchTerm = '', SUGG = null;
+function buildSuggest() {
+  const freq = new Map(), disp = new Map();
+  const add = (w, n) => { const k = normS(w); if (!k) return; freq.set(k, (freq.get(k) || 0) + n); if (!disp.has(k)) disp.set(k, w); };
+  Q.forEach((q) => { [q.stem, ...(q.statements || []), ...Object.values(q.options)].join(' ').split(/[^A-Za-zÄÖÜäöüß-]+/).forEach((w) => { if (w.length >= 6 && /^[A-ZÄÖÜ]/.test(w)) add(w, 1); }); });
+  VC.forEach((c) => add(c.term, 4));
+  [...new Set(Q.map((q) => q.topic))].forEach((t) => add(t, 50));
+  SUGG = [...freq.entries()].filter(([k, n]) => n >= 2).map(([k, n]) => ({ k, n, w: disp.get(k) })).sort((a, b) => b.n - a.n);
+}
+function suggest(term) {
+  if (!SUGG) buildSuggest();
+  const t = normS(term.trim()); if (t.length < 2) return [];
+  const pre = SUGG.filter((e) => e.k.startsWith(t)), mid = SUGG.filter((e) => !e.k.startsWith(t) && e.k.includes(t));
+  return [...pre, ...mid].filter((e) => e.k !== t).slice(0, 8).map((e) => e.w);
+}
+function addRecent(term) {
+  const t = term.trim(); if (t.length < 2) return;
+  S.recent = [t, ...S.recent.filter((x) => x.toLowerCase() !== t.toLowerCase())].slice(0, 8); save();
+}
+window.sOpen = (id) => { addRecent(searchTerm); location.hash = '#/review/' + id; };
+window.sPick = (t) => { searchTerm = t; addRecent(t); renderSearch(); };
 const normS = (x) => String(x || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
 function buildSearch() {
   SIDX = { q: Q.map((q) => ({ q, s: normS([q.stem, ...(q.statements || []), ...Object.values(q.options), q.exam, q.topic, q.general, ...Object.values(q.expl || {})].join(' ')) })),
@@ -554,23 +579,31 @@ function runSearch(term) {
 function renderSearch() {
   app.innerHTML = `<div class="view">${topbar('Suche')}
     <input type="search" id="sq" placeholder="z. B. Suizid, Schweigepflicht, Lithium" value="${esc(searchTerm)}" autocomplete="off" autocapitalize="none" enterkeyhint="search">
+    <div id="ssugg" style="margin-top:10px"></div>
     <div id="sres" style="margin-top:12px"></div></div>`;
   const inp = $('#sq');
   let timer = null;
   const run = () => {
-    searchTerm = inp.value; const r = runSearch(searchTerm); const box = $('#sres');
-    if (!r) { box.innerHTML = `<p class="muted">Suche in ${Q.length} Fragen und ${VC.length} Begriffen. Mehrere Wörter müssen alle vorkommen.</p>`; return; }
+    searchTerm = inp.value; const r = runSearch(searchTerm); const box = $('#sres'); const sg = $('#ssugg');
+    const chip = (t, cls = '') => `<button class="chip ${cls}" onclick="sPick('${esc(t).replace(/'/g, '&#39;')}')">${esc(t)}</button>`;
+    if (!r) {
+      sg.innerHTML = S.recent.length ? `<div class="muted small" style="margin-bottom:6px">Zuletzt gesucht</div><div class="chips">${S.recent.map((t) => chip(t)).join('')}<button class="chip" id="sclear" style="color:var(--muted)">löschen</button></div>` : '';
+      const sc = $('#sclear'); if (sc) sc.onclick = () => { S.recent = []; save(); run(); };
+      box.innerHTML = `<p class="muted">Suche in ${Q.length} Fragen und ${VC.length} Begriffen. Mehrere Wörter müssen alle vorkommen.</p>`; return;
+    }
+    const sug = suggest(searchTerm);
+    sg.innerHTML = sug.length ? `<div class="chips">${sug.map((t) => chip(t, 'on')).join('')}</div>` : '';
     const qs = r.qs, cs = r.cs;
     const pool = (q) => q.pool === 'official' ? q.exam + ' · Nr. ' + q.nr : (q.pool === 'husum' ? q.exam : 'Likamundi');
     box.innerHTML = `<div class="barrow" style="margin-bottom:8px"><span>${qs.length} Fragen · ${cs.length} Begriffe</span></div>
       ${qs.length ? `<button class="btn primary" id="sgo" style="margin-bottom:10px">Diese Fragen üben (${Math.min(qs.length, 60)})</button>` : ''}
-      <div class="list">${qs.slice(0, 120).map((q) => `<div class="row" onclick="location.hash='#/review/${q.id}'"><div class="grow"><div class="t" style="white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(q.stem)}</div><div class="s">${esc(pool(q))} · ${esc(q.topic)}${S.srs[q.id] ? (S.srs[q.id].box > 0 ? ' · zuletzt richtig' : ' · zuletzt falsch') : ''}</div></div>${ICON.chevron}</div>`).join('')}
+      <div class="list">${qs.slice(0, 120).map((q) => `<div class="row" onclick="sOpen('${q.id}')"><div class="grow"><div class="t" style="white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(q.stem)}</div><div class="s">${esc(pool(q))} · ${esc(q.topic)}${S.srs[q.id] ? (S.srs[q.id].box > 0 ? ' · zuletzt richtig' : ' · zuletzt falsch') : ''}</div></div>${ICON.chevron}</div>`).join('')}
       ${qs.length > 120 ? `<p class="muted small">… und ${qs.length - 120} weitere. Suche verfeinern.</p>` : ''}</div>
       ${cs.length ? `<h2>Begriffe</h2><div class="list">${cs.slice(0, 60).map((c) => `<div class="row" style="cursor:default"><div class="grow"><div class="t">${esc(c.term)} <span class="pill gray">${esc(c.deck)}</span></div><div class="s" style="white-space:normal">${esc(c.text)}${c.note ? ' · ' + esc(c.note) : ''}</div></div></div>`).join('')}</div>` : ''}`;
-    const g = $('#sgo'); if (g) g.onclick = () => startSession({ mode: 'lernen', ids: shuffle(qs.map((q) => q.id)).slice(0, 60), feedback: true, label: 'Suche: ' + searchTerm.trim() });
+    const g = $('#sgo'); if (g) g.onclick = () => { addRecent(searchTerm); startSession({ mode: 'lernen', ids: shuffle(qs.map((q) => q.id)).slice(0, 60), feedback: true, label: 'Suche: ' + searchTerm.trim() }); };
   };
   inp.oninput = () => { clearTimeout(timer); timer = setTimeout(run, 120); };
-  inp.onkeydown = (e) => { if (e.key === 'Enter') { inp.blur(); run(); } };
+  inp.onkeydown = (e) => { if (e.key === 'Enter') { inp.blur(); addRecent(inp.value); run(); } };
   run();
   if (!searchTerm) setTimeout(() => inp.focus(), 60);
 }
