@@ -1,6 +1,6 @@
 /* HPP Trainer – vanilla JS, no build step. All question content comes from data.enc (built by pipeline/build_data.py). */
 'use strict';
-const DATA_V = 'd2dbb645d2';
+const DATA_V = '96b56e9eab';
 const LS_STATE = 'hpp.state.v1', LS_KEY = 'hpp.key.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -434,12 +434,15 @@ function pickVocab(deck, n) {
   return [...wrong, ...due, ...fresh, ...rest].slice(0, n).map((c) => c.k);
 }
 const _words = (t) => new Set(normS(t).split(/[^a-z0-9]+/).filter((w) => w.length >= 4));
-function pickDistractors(c, n) {
-  const cw = _words(c.text);
-  const ok = (x) => { if (x.k === c.k || x.deck !== c.deck || !x.text || normS(x.text) === normS(c.text) || normS(x.term) === normS(c.term)) return false; const xw = _words(x.text); let shared = 0; xw.forEach((w) => { if (cw.has(w)) shared++; }); return shared / Math.max(1, Math.min(cw.size, xw.size)) < 0.34; };
+function pickDistractors(c, n, exclude = []) {
+  const T = (x) => x.quiz ? x.quiz.correct : x.text;  // same style as the correct answer of that deck
+  const base = T(c), cw = _words(base), ex = exclude.map(normS);
+  const ok = (x) => { const t = T(x); if (x.k === c.k || x.deck !== c.deck || !t || normS(t) === normS(base) || ex.includes(normS(t)) || normS(x.term) === normS(c.term)) return false; const xw = _words(t); let shared = 0; xw.forEach((w) => { if (cw.has(w)) shared++; }); return shared / Math.max(1, Math.min(cw.size, xw.size)) < 0.34; };
   const same = shuffle(VC.filter((x) => ok(x) && x.category && x.category === c.category));
   const other = shuffle(VC.filter((x) => ok(x) && !(x.category && x.category === c.category)));
-  return [...same, ...other].slice(0, n).map((x) => x.text);
+  const seen = new Set(); const out = [];
+  for (const x of [...same, ...other]) { const t = T(x); if (seen.has(normS(t))) continue; seen.add(normS(t)); out.push(t); if (out.length === n) break; }
+  return out;
 }
 function deckStats(deck) {
   const t = today(); let n = 0, seen = 0, mastered = 0, due = 0;
@@ -449,9 +452,9 @@ function deckStats(deck) {
 function renderVocab() {
   const q = deckStats('Fachbegriffe');
   app.innerHTML = `<div class="view">${topbar('Begriffe')}
-    <button class="cta" id="vquiz"><span class="grow"><b class="display">Begriffe-Quiz</b><small>${q.n} Fachbegriffe · ${q.due} fällig · ${q.n - q.seen} neu · ${S.settings.len} pro Runde</small></span><span class="ring">${ICON.bolt}</span></button>
-    <div class="seg" id="vmode" style="margin-top:12px"><button class="${S.settings.vocabMode !== 'cards' ? 'on' : ''}" data-m="quiz">Auswahl (3 Antworten)</button><button class="${S.settings.vocabMode === 'cards' ? 'on' : ''}" data-m="cards">Karteikarten</button></div>
-    <p class="muted small" style="margin:8px 2px 2px">${S.settings.vocabMode === 'cards' ? 'Begriff sehen, antippen zum Aufdecken, dann „Wusste ich“ oder „Nochmal“.' : 'Begriff oben, drei Erklärungen zur Auswahl. Die falschen sind echte Erklärungen anderer Begriffe aus derselben Liste.'} Falsche kommen sofort wieder, richtige nach 1, 3, 7, 14 und 30 Tagen.</p>
+    <button class="cta" id="vquiz"><span class="grow"><b class="display">Begriffe-Quiz</b><small>${q.n} Fachbegriffe · 4 Antworten · ${q.due} fällig · ${q.n - q.seen} neu</small></span><span class="ring">${ICON.bolt}</span></button>
+    <div class="seg" id="vmode" style="margin-top:12px"><button class="${S.settings.vocabMode !== 'cards' ? 'on' : ''}" data-m="quiz">Auswahl (4 Antworten)</button><button class="${S.settings.vocabMode === 'cards' ? 'on' : ''}" data-m="cards">Karteikarten</button></div>
+    <p class="muted small" style="margin:8px 2px 2px">${S.settings.vocabMode === 'cards' ? 'Begriff sehen, antippen zum Aufdecken, dann „Wusste ich“ oder „Nochmal“.' : 'Begriff oben, vier Antworten zur Auswahl. Die falschen sind echte Erklärungen anderer Begriffe aus derselben Liste.'} Falsche kommen sofort wieder, richtige nach 1, 3, 7, 14 und 30 Tagen.</p>
     <div class="list">${DECKS.map((d) => { const s = deckStats(d); if (!s.n) return ''; return `<div class="row" data-deck="${d}"><div class="grow"><div class="t">${d}</div><div class="s">${s.n} Karten · ${s.due} fällig · ${s.mastered} sicher · ${esc(DECK_INFO[d] || '')}</div><div class="bar" style="margin-top:6px"><i style="width:${(s.mastered / s.n) * 100}%"></i></div></div>${ICON.chevron}</div>`; }).join('')}</div>
   </div>`;
   $('#vquiz').onclick = () => startVocab('quiz', 'Fachbegriffe');
@@ -473,10 +476,10 @@ function renderVSession() {
   const head = `<div class="topbar compact"><button class="iconbtn" id="qclose" aria-label="Beenden">${ICON.x}</button><div class="progress"><i style="width:${(answered / n) * 100}%"></i></div><div class="tb-right" style="min-width:56px;justify-content:flex-end"><span>${vs.i + 1}<span class="muted">/${n}</span></span></div><div style="width:44px"></div></div>`;
   if (vs.kind === 'quiz') {
     const v = c.quiz;
-    const opts = vs.opts || (vs.opts = shuffle(v ? [{ t: v.correct, ok: true }, { t: v.distractor, ok: false }] : [{ t: c.text, ok: true }, ...pickDistractors(c, 2).map((t) => ({ t, ok: false }))]));
+    const opts = vs.opts || (vs.opts = shuffle(v ? [{ t: v.correct, ok: true }, { t: v.distractor, ok: false }, ...pickDistractors(c, 2, [v.distractor]).map((t) => ({ t, ok: false }))] : [{ t: c.text, ok: true }, ...pickDistractors(c, 3).map((t) => ({ t, ok: false }))]));
     app.innerHTML = `<div class="view quiz">${head}
       <div class="vocab-card"><div class="cat">${esc(c.category || 'Begriff')}</div><div class="term">${esc(c.term)}</div>${c.note ? `<div class="mnemo">${ICON.bulb}<span>${esc(c.note)}</span></div>` : ''}</div>
-      <div class="options">${opts.map((o, i) => `<button class="opt tall" data-ok="${o.ok}"><span class="letter">${'ABC'[i]}</span><span>${esc(o.t)}</span></button>`).join('')}</div>
+      <div class="options">${opts.map((o, i) => `<button class="opt tall" data-ok="${o.ok}"><span class="letter">${'ABCD'[i]}</span><span>${esc(o.t)}</span></button>`).join('')}</div>
       <div id="fb"></div>
       <p class="hint">Antippen – geht automatisch weiter</p>
     </div>`;

@@ -1,6 +1,6 @@
 // Cache-first service worker: the app shell and the encrypted data work offline.
 // Bump VERSION when files change; the app also fetches data.enc with the data version in the query string.
-const VERSION = 'd2dbb645d2';
+const VERSION = '96b56e9eab';
 const CACHE = 'hpp-' + VERSION;
 const SHELL = ['./', './index.html', './styles.css', './fonts/fonts.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
 
