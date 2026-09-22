@@ -1,6 +1,6 @@
 /* HPP Trainer – vanilla JS, no build step. All question content comes from data.enc (built by pipeline/build_data.py). */
 'use strict';
-const DATA_V = '6967cff94d';
+const DATA_V = '41dc83b6d6';
 const LS_STATE = 'hpp.state.v1', LS_KEY = 'hpp.key.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -36,6 +36,7 @@ const ICON = {
   trash: _svg('<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path>'),
   info: _svg('<circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><path d="M12 8h.01"></path>'),
   lock: _svg('<rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path>'),
+  search: _svg('<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>'),
   bulb: _svg('<path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"></path>', ' width="16" height="16" stroke-width="2.2"'),
 };
 
@@ -69,16 +70,28 @@ async function decrypt(enc, raw) {
   const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(enc.iv) }, key, b64(enc.ct));
   return JSON.parse(new TextDecoder().decode(pt));
 }
+// second copy of the cached key in IndexedDB (localStorage alone can be cleared by the browser)
+function idb() { return new Promise((res, rej) => { const r = indexedDB.open('hpp', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function idbGet(k) { try { const db = await idb(); return await new Promise((res) => { const t = db.transaction('kv').objectStore('kv').get(k); t.onsuccess = () => res(t.result || null); t.onerror = () => res(null); }); } catch (e) { return null; } }
+async function idbSet(k, v) { try { const db = await idb(); db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); } catch (e) { /* ignore */ } }
+async function storeKey(raw) { const b = btoa(String.fromCharCode(...raw)); try { localStorage.setItem(LS_KEY, b); } catch (e) { /* ignore */ } await idbSet('key', b); try { await navigator.storage?.persist?.(); } catch (e) { /* ignore */ } }
 async function fetchEnc() { const r = await fetch('data.enc?v=' + DATA_V, { cache: 'force-cache' }); if (!r.ok) throw new Error('data.enc fehlt'); return r.json(); }
 function setData(d) {
-  DATA = d; Q = d.questions; QBY = {}; Q.forEach((q) => { QBY[q.id] = q; }); VOCAB = d.vocab || []; buildVocab();
+  DATA = d; Q = d.questions; QBY = {}; Q.forEach((q) => { QBY[q.id] = q; }); VOCAB = d.vocab || []; buildVocab(); SIDX = null;
 }
 async function boot() {
   applyTheme();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   let enc; try { enc = await fetchEnc(); } catch (e) { app.innerHTML = `<div class="view"><div class="center"><p>Daten konnten nicht geladen werden.</p><button class="btn primary" onclick="location.reload()">Neu laden</button></div></div>`; return; }
-  const saved = localStorage.getItem(LS_KEY);
-  if (saved) { try { setData(await decrypt(enc, b64(saved))); route(); return; } catch (e) { localStorage.removeItem(LS_KEY); } }
+  // a link can carry the code once (?k=code); it is removed from the address right away
+  const url = new URL(location.href);
+  const kParam = url.searchParams.get('k') || (location.hash.match(/[#&?]k=([^&]+)/) || [])[1];
+  if (kParam) {
+    try { const raw = await deriveKey(decodeURIComponent(kParam).trim(), enc.salt); setData(await decrypt(enc, raw)); await storeKey(raw);
+      url.searchParams.delete('k'); history.replaceState(null, '', url.pathname + url.search + '#/home'); route(); return; } catch (e) { /* fall through to unlock */ }
+  }
+  const saved = localStorage.getItem(LS_KEY) || await idbGet('key');
+  if (saved) { try { setData(await decrypt(enc, b64(saved))); await storeKey(b64(saved)); route(); return; } catch (e) { localStorage.removeItem(LS_KEY); await idbSet('key', null); } }
   renderUnlock(enc);
 }
 function renderUnlock(enc, err) {
@@ -93,7 +106,7 @@ function renderUnlock(enc, err) {
   $('#unlock').onsubmit = async (e) => {
     e.preventDefault();
     const btn = $('#unlock button'); btn.disabled = true; btn.textContent = 'Prüfe…';
-    try { const raw = await deriveKey($('#pass').value.trim(), enc.salt); setData(await decrypt(enc, raw)); localStorage.setItem(LS_KEY, btoa(String.fromCharCode(...raw))); route(); }
+    try { const raw = await deriveKey($('#pass').value.trim(), enc.salt); setData(await decrypt(enc, raw)); await storeKey(raw); go('#/home'); }
     catch (er) { renderUnlock(enc, 'Code stimmt nicht.'); }
   };
   setTimeout(() => $('#pass')?.focus(), 50);
@@ -106,7 +119,7 @@ function route() {
   if (!DATA) return;
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   window.scrollTo(0, 0);
-  const views = { '': renderHome, home: renderHome, quiz: renderQuiz, result: renderResult, history: renderHistory, session: () => renderSession(arg), stats: renderStats, topics: renderTopics, vocab: renderVocab, vsession: renderVSession, settings: renderSettings, about: renderAbout, review: () => renderReview(arg), flagged: renderFlagged };
+  const views = { '': renderHome, home: renderHome, quiz: renderQuiz, result: renderResult, history: renderHistory, session: () => renderSession(arg), stats: renderStats, topics: renderTopics, vocab: renderVocab, vsession: renderVSession, search: renderSearch, settings: renderSettings, about: renderAbout, review: () => renderReview(arg), flagged: renderFlagged };
   (views[name] || renderHome)();
 }
 function topbar(title, right = '') { return `<div class="topbar"><button class="iconbtn" data-back aria-label="Zurück">${ICON.back}</button><div class="title">${esc(title)}</div><div class="tb-right">${right}</div></div>`; }
@@ -149,7 +162,7 @@ function renderHome() {
   const c = DATA.meta.counts;
   const tile = (go, icon, label) => `<button class="tile" ${go.startsWith('#') ? `onclick="location.hash='${go}'"` : `data-go="${go}"`}>${icon}<span>${label}</span></button>`;
   app.innerHTML = `<div class="view home">
-    <div class="home-head"><div><div class="muted strong">Hallo Phine</div><h1>Heute dran.</h1></div><button class="iconbtn card-btn" onclick="location.hash='#/settings'" aria-label="Einstellungen">${ICON.settings}</button></div>
+    <div class="home-head"><div><div class="muted strong">Hallo Phine</div><h1>Heute dran.</h1></div><div style="display:flex;gap:8px"><button class="iconbtn card-btn" onclick="location.hash='#/search'" aria-label="Suche">${ICON.search}</button><button class="iconbtn card-btn" onclick="location.hash='#/settings'" aria-label="Einstellungen">${ICON.settings}</button></div></div>
     <div class="statcard"><div><b class="num accent">${streak}</b><span>Tage in Folge</span></div><div><b class="num">${todayOk}<small>/${todayAns.length}</small></b><span>heute richtig</span></div><div><b class="num">${mastered}</b><span>sicher</span></div></div>
     <button class="cta" data-go="learn"><span class="grow"><b class="display">Lernen</b><small>${due} fällig · ${fresh} neu · ${S.settings.len} pro Runde</small></span><span class="ring">${ICON.bolt}</span></button>
     <button class="cta2" data-go="exam"><span class="ico-box">${ICON.cap}</span><span class="grow"><b>Prüfung simulieren</b><small>28 Originalfragen · 21 zum Bestehen</small></span>${ICON.chevron}</button>
@@ -509,6 +522,45 @@ function renderVocabSession(s) {
   if ($('#redo')) $('#redo').onclick = () => startVocab(s.kind, s.deck, shuffle(wrong.map((i) => i.k)));
 }
 
+
+// ---------- search ----------
+let SIDX = null, searchTerm = '';
+const normS = (x) => String(x || '').toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
+function buildSearch() {
+  SIDX = { q: Q.map((q) => ({ q, s: normS([q.stem, ...(q.statements || []), ...Object.values(q.options), q.exam, q.topic, q.general, ...Object.values(q.expl || {})].join(' ')) })),
+           c: VC.map((c) => ({ c, s: normS([c.term, c.text, c.note, c.category, c.deck].join(' ')) })) };
+}
+function runSearch(term) {
+  if (!SIDX) buildSearch();
+  const words = normS(term).split(/\s+/).filter((w) => w.length >= 2);
+  if (!words.length) return null;
+  const hit = (e) => words.every((w) => e.s.includes(w));
+  return { qs: SIDX.q.filter(hit).map((e) => e.q), cs: SIDX.c.filter(hit).map((e) => e.c) };
+}
+function renderSearch() {
+  app.innerHTML = `<div class="view">${topbar('Suche')}
+    <input type="search" id="sq" placeholder="z. B. Suizid, Schweigepflicht, Lithium" value="${esc(searchTerm)}" autocomplete="off" autocapitalize="none" enterkeyhint="search">
+    <div id="sres" style="margin-top:12px"></div></div>`;
+  const inp = $('#sq');
+  let timer = null;
+  const run = () => {
+    searchTerm = inp.value; const r = runSearch(searchTerm); const box = $('#sres');
+    if (!r) { box.innerHTML = `<p class="muted">Suche in ${Q.length} Fragen und ${VC.length} Begriffen. Mehrere Wörter müssen alle vorkommen.</p>`; return; }
+    const qs = r.qs, cs = r.cs;
+    const pool = (q) => q.pool === 'official' ? q.exam + ' · Nr. ' + q.nr : (q.pool === 'husum' ? q.exam : 'Likamundi');
+    box.innerHTML = `<div class="barrow" style="margin-bottom:8px"><span>${qs.length} Fragen · ${cs.length} Begriffe</span></div>
+      ${qs.length ? `<button class="btn primary" id="sgo" style="margin-bottom:10px">Diese Fragen üben (${Math.min(qs.length, 60)})</button>` : ''}
+      <div class="list">${qs.slice(0, 120).map((q) => `<div class="row" onclick="location.hash='#/review/${q.id}'"><div class="grow"><div class="t" style="white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${esc(q.stem)}</div><div class="s">${esc(pool(q))} · ${esc(q.topic)}${S.srs[q.id] ? (S.srs[q.id].box > 0 ? ' · zuletzt richtig' : ' · zuletzt falsch') : ''}</div></div>${ICON.chevron}</div>`).join('')}
+      ${qs.length > 120 ? `<p class="muted small">… und ${qs.length - 120} weitere. Suche verfeinern.</p>` : ''}</div>
+      ${cs.length ? `<h2>Begriffe</h2><div class="list">${cs.slice(0, 60).map((c) => `<div class="row" style="cursor:default"><div class="grow"><div class="t">${esc(c.term)} <span class="pill gray">${esc(c.deck)}</span></div><div class="s" style="white-space:normal">${esc(c.text)}${c.note ? ' · ' + esc(c.note) : ''}</div></div></div>`).join('')}</div>` : ''}`;
+    const g = $('#sgo'); if (g) g.onclick = () => startSession({ mode: 'lernen', ids: shuffle(qs.map((q) => q.id)).slice(0, 60), feedback: true, label: 'Suche: ' + searchTerm.trim() });
+  };
+  inp.oninput = () => { clearTimeout(timer); timer = setTimeout(run, 120); };
+  inp.onkeydown = (e) => { if (e.key === 'Enter') { inp.blur(); run(); } };
+  run();
+  if (!searchTerm) setTimeout(() => inp.focus(), 60);
+}
+
 // ---------- settings ----------
 function renderSettings() {
   const s = S.settings;
@@ -539,7 +591,7 @@ function renderSettings() {
   $('#import').onclick = () => $('#file').click();
   $('#file').onchange = (e) => { const f = e.target.files[0]; if (!f) return; f.text().then((t) => { const d = JSON.parse(t); if (!d.answers) throw 0; S = withDefaults(d); save(); toast('Importiert'); renderSettings(); }).catch(() => toast('Datei ungültig')); };
   $('#reset').onclick = () => { if (confirm('Wirklich allen Fortschritt löschen?')) { S = withDefaults({}); save(); toast('Gelöscht'); go('#/home'); } };
-  $('#lock').onclick = () => { localStorage.removeItem(LS_KEY); location.hash = ''; location.reload(); };
+  $('#lock').onclick = async () => { localStorage.removeItem(LS_KEY); await idbSet('key', null); location.hash = ''; location.reload(); };
 }
 function renderAbout() {
   app.innerHTML = `<div class="view">${topbar('Quellen & Hinweise')}
