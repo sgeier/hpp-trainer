@@ -1,6 +1,6 @@
 /* HPP Trainer – vanilla JS, no build step. All question content comes from data.enc (built by pipeline/build_data.py). */
 'use strict';
-const DATA_V = 'c912ac3253';
+const DATA_V = '6967cff94d';
 const LS_STATE = 'hpp.state.v1', LS_KEY = 'hpp.key.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -51,7 +51,7 @@ function loadState() {
   return withDefaults({});
 }
 function withDefaults(s) {
-  s.answers ||= []; s.srs ||= {}; s.sessions ||= []; s.flags ||= {}; s.vocab ||= {};
+  s.answers ||= []; s.vanswers ||= []; s.srs ||= {}; s.sessions ||= []; s.flags ||= {}; s.vocab ||= {};
   s.settings = Object.assign({ len: 20, pools: { official: true, husum: false, likamundi: true }, theme: 'auto', haptic: true, examTimer: 0 }, s.settings || {});
   return s;
 }
@@ -71,7 +71,7 @@ async function decrypt(enc, raw) {
 }
 async function fetchEnc() { const r = await fetch('data.enc?v=' + DATA_V, { cache: 'force-cache' }); if (!r.ok) throw new Error('data.enc fehlt'); return r.json(); }
 function setData(d) {
-  DATA = d; Q = d.questions; QBY = {}; Q.forEach((q) => { QBY[q.id] = q; }); VOCAB = d.vocab || [];
+  DATA = d; Q = d.questions; QBY = {}; Q.forEach((q) => { QBY[q.id] = q; }); VOCAB = d.vocab || []; buildVocab();
 }
 async function boot() {
   applyTheme();
@@ -106,7 +106,7 @@ function route() {
   if (!DATA) return;
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   window.scrollTo(0, 0);
-  const views = { '': renderHome, home: renderHome, quiz: renderQuiz, result: renderResult, history: renderHistory, session: () => renderSession(arg), stats: renderStats, topics: renderTopics, vocab: renderVocab, settings: renderSettings, about: renderAbout, review: () => renderReview(arg), flagged: renderFlagged };
+  const views = { '': renderHome, home: renderHome, quiz: renderQuiz, result: renderResult, history: renderHistory, session: () => renderSession(arg), stats: renderStats, topics: renderTopics, vocab: renderVocab, vsession: renderVSession, settings: renderSettings, about: renderAbout, review: () => renderReview(arg), flagged: renderFlagged };
   (views[name] || renderHome)();
 }
 function topbar(title, right = '') { return `<div class="topbar"><button class="iconbtn" data-back aria-label="Zurück">${ICON.back}</button><div class="title">${esc(title)}</div><div class="tb-right">${right}</div></div>`; }
@@ -142,7 +142,7 @@ function renderHome() {
   const all = poolQuestions(S.settings.pools);
   const due = all.filter((q) => { const r = S.srs[q.id]; return r && (r.box === 0 || r.due <= t); }).length;
   const fresh = all.filter((q) => !S.srs[q.id]).length;
-  const todayAns = S.answers.filter((a) => Math.floor(a.t / 86400000) === t);
+  const todayAns = S.answers.concat(S.vanswers).filter((a) => Math.floor(a.t / 86400000) === t);
   const todayOk = todayAns.filter((a) => a.ok).length;
   const streak = calcStreak();
   const mastered = Object.values(S.srs).filter((r) => r.box >= 3).length;
@@ -155,7 +155,7 @@ function renderHome() {
     <button class="cta2" data-go="exam"><span class="ico-box">${ICON.cap}</span><span class="grow"><b>Prüfung simulieren</b><small>28 Originalfragen · 21 zum Bestehen</small></span>${ICON.chevron}</button>
     <div class="tiles">${tile('#/topics', ICON.layers, 'Themen')}${tile('#/vocab', ICON.book, 'Begriffe')}${tile('husum', ICON.wave, 'Husum')}${tile('lika', ICON.bookOpen, 'Likamundi')}${tile('#/history', ICON.clock, 'Verlauf')}${tile('#/stats', ICON.chart, 'Statistik')}</div>
     ${Object.keys(S.flags).length ? `<button class="cta2" onclick="location.hash='#/flagged'"><span class="ico-box">${ICON.starFill}</span><span class="grow"><b>Markierte Fragen</b><small>${Object.keys(S.flags).length} markiert</small></span>${ICON.chevron}</button>` : ''}
-    <p class="hint foot">${c.official} Originalfragen 2018–2026 · ${c.husum} Husum · ${c.likamundi} Likamundi · ${c.vocab} Begriffe</p>
+    <p class="hint foot">${c.official} Originalfragen 2018–2026 · ${c.husum} Husum · ${c.likamundi} Likamundi · ${c.vocab + (c.cards || 0)} Begriffe</p>
   </div>`;
   app.querySelectorAll('[data-go]').forEach((b) => b.onclick = () => {
     const k = b.dataset.go;
@@ -166,7 +166,7 @@ function renderHome() {
   });
 }
 function calcStreak() {
-  const days = new Set(S.answers.map((a) => Math.floor(a.t / 86400000)));
+  const days = new Set(S.answers.concat(S.vanswers).map((a) => Math.floor(a.t / 86400000)));
   let d = today(), n = 0; if (!days.has(d)) d--;
   while (days.has(d)) { n++; d--; }
   return n;
@@ -312,6 +312,7 @@ function renderResult() {
 }
 function renderSession(sid, fresh = false) {
   const s = S.sessions.find((x) => x.sid === sid); if (!s) { go('#/history'); return; }
+  if (s.mode === 'begriffe') { renderVocabSession(s); return; }
   const pct = s.n ? Math.round((s.ok / s.n) * 100) : 0;
   const exam = s.mode === 'pruefung';
   const full = s.n === (DATA.meta.exam_size || 28);
@@ -372,6 +373,8 @@ function renderStats() {
     <div class="stack">${Object.entries(topics).sort((a, b) => a[1].ok / a[1].n - b[1].ok / b[1].n).map(([t, b]) => `<div onclick="startTopic('${esc(t).replace(/'/g, '&#39;')}')"><div class="barrow"><span>${esc(t)}</span><span>${Math.round((b.ok / b.n) * 100)} % · ${b.n}</span></div><div class="bar"><i style="width:${(b.ok / b.n) * 100}%;background:${b.ok / b.n >= 0.75 ? 'var(--ok)' : 'var(--warn)'}"></i></div></div>`).join('') || '<p class="muted">Noch keine Daten.</p>'}</div>
     <h2>Lernstufen</h2>
     <div class="card small">${['neu/falsch', '1× richtig', '2× richtig', '3× richtig', '4× richtig', 'sicher'].map((l, i) => `<div class="barrow" style="margin:3px 0"><span style="font-weight:600">${l}</span><span style="color:var(--text)">${boxes[i]}</span></div>`).join('')}<div class="muted" style="margin-top:6px">Falsche Fragen kommen sofort wieder, richtige nach 1, 3, 7, 14 und 30 Tagen.</div></div>
+    <h2>Begriffe</h2>
+    <div class="stack">${DECKS.map((d) => { const v = deckStats(d); if (!v.n) return ''; return `<div><div class="barrow"><span>${d}</span><span>${v.seen}/${v.n} gesehen · ${v.mastered} sicher</span></div><div class="bar"><i style="width:${(v.mastered / v.n) * 100}%"></i></div></div>`; }).join('')}</div>
     <h2>Prüfungen abgedeckt</h2>
     <div class="stack">${Object.entries(exams).map(([e, v]) => `<div><div class="barrow"><span>${esc(e)}</span><span>${v.seen}/${v.n} gesehen · ${v.ok} richtig</span></div><div class="bar"><i style="width:${(v.seen / v.n) * 100}%"></i></div></div>`).join('')}</div>
   </div>`;
@@ -393,29 +396,119 @@ function renderFlagged() {
   if ($('#go')) $('#go').onclick = () => startSession({ mode: 'lernen', ids: shuffle(ids), feedback: true, label: 'Markierte' });
 }
 
-// ---------- vocab ----------
-let vq = null;
-function renderVocab() {
-  if (!VOCAB.length) { app.innerHTML = `<div class="view">${topbar('Begriffe')}<p class="muted">Keine Begriffe geladen.</p></div>`; return; }
-  const stats = S.vocab;
-  const pick = () => { const cands = VOCAB.map((v, i) => ({ v, i, w: (stats[v.term]?.wrong || 0) * 3 + (stats[v.term] ? 0 : 2) + Math.random() })); cands.sort((a, b) => b.w - a.w); return cands[0].v; };
-  const v = vq || pick(); vq = v;
-  const opts = shuffle([{ t: v.correct, ok: true }, { t: v.distractor, ok: false }]);
-  const seen = Object.keys(stats).length, right = Object.values(stats).filter((s) => s.ok).length;
-  app.innerHTML = `<div class="view quiz">${topbar('Begriffe', `<span>${right}<span class="muted">/${seen}</span></span>`)}
-    <div class="vocab-card"><div class="cat">${esc(v.category || 'Begriff')}</div><div class="term">${esc(v.term)}</div>${v.mnemonic ? `<div class="mnemo">${ICON.bulb}<span>${esc(v.mnemonic)}</span></div>` : ''}</div>
-    <div class="options">${opts.map((o, i) => `<button class="opt tall" data-ok="${o.ok}"><span class="letter">${'AB'[i]}</span><span>${esc(o.t)}</span></button>`).join('')}</div>
-    <div id="fb"></div>
-    <p class="hint">Antippen – geht automatisch weiter</p>
-  </div>`;
-  app.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
-    const ok = b.dataset.ok === 'true';
-    app.querySelectorAll('.opt').forEach((x) => { x.disabled = true; x.classList.add(x.dataset.ok === 'true' ? 'correct' : (x === b ? 'wrong' : 'dim')); });
-    const st = stats[v.term] ||= { seen: 0, wrong: 0, ok: false }; st.seen++; if (ok) st.ok = true; else st.wrong++; save(); haptic(ok);
-    if (v.explanation) $('#fb').innerHTML = `<div class="feedback neutral"><div class="small" style="font-weight:600">${esc(v.explanation)}</div></div>`;
-    vq = null; setTimeout(renderVocab, ok ? 700 : 1600);
-  });
+// ---------- vocab (Begriffe) ----------
+const DECKS = ['Fachbegriffe', 'Abwehrmechanismen', 'Abkürzungen', 'Wortbausteine', 'Allgemein', 'Medizinisch', 'Fremdwörter'];
+const DECK_INFO = { Fachbegriffe: 'aus der Fachbegriffe-Liste, mit Quiz', Abwehrmechanismen: 'Freud & Co.', Abkürzungen: 'ICD, DSM, AMDP …', Wortbausteine: 'Vor- und Nachsilben aus dem Latein', Allgemein: 'allgemeine Vokabeln', Medizinisch: 'medizinische Vokabeln', Fremdwörter: 'Liste von Donatella' };
+let VC = [], VCBY = {};
+function buildVocab() {
+  VC = VOCAB.map((v) => ({ deck: 'Fachbegriffe', term: v.term, text: v.explanation, note: v.mnemonic, category: v.category, quiz: v }))
+    .concat((DATA.cards || []).map((c) => ({ deck: c.deck, term: c.term, text: c.text, note: c.note || '', category: c.category || '' })));
+  VCBY = {}; VC.forEach((c) => { c.k = c.deck + '|' + c.term; VCBY[c.k] = c; });
 }
+function vUpdate(k, ok) {
+  const r = (S.vocab[k] && typeof S.vocab[k].box === 'number') ? S.vocab[k] : { box: 0, due: 0, seen: 0, wrong: 0 };
+  r.seen++; if (ok) r.box = Math.min(r.box + 1, 5); else { r.box = 0; r.wrong++; }
+  r.due = today() + BOX_DAYS[r.box]; r.last = Date.now(); S.vocab[k] = r;
+  S.vanswers.push({ t: Date.now(), k, ok });
+}
+function vState(k) { const r = S.vocab[k]; return r && typeof r.box === 'number' ? r : null; }
+function pickVocab(deck, n) {
+  const t = today();
+  const cs = VC.filter((c) => !deck || c.deck === deck);
+  const wrong = [], due = [], fresh = [], rest = [];
+  cs.forEach((c) => { const r = vState(c.k); if (!r) fresh.push(c); else if (r.box === 0) wrong.push(c); else if (r.due <= t) due.push(c); else rest.push(c); });
+  shuffle(wrong); shuffle(due); shuffle(fresh); rest.sort((a, b) => vState(a.k).due - vState(b.k).due);
+  return [...wrong, ...due, ...fresh, ...rest].slice(0, n).map((c) => c.k);
+}
+function deckStats(deck) {
+  const t = today(); let n = 0, seen = 0, mastered = 0, due = 0;
+  VC.forEach((c) => { if (c.deck !== deck) return; n++; const r = vState(c.k); if (r) { seen++; if (r.box >= 3) mastered++; if (r.box === 0 || r.due <= t) due++; } });
+  return { n, seen, mastered, due };
+}
+function renderVocab() {
+  const q = deckStats('Fachbegriffe');
+  app.innerHTML = `<div class="view">${topbar('Begriffe')}
+    <button class="cta" id="vquiz"><span class="grow"><b class="display">Begriffe-Quiz</b><small>${q.n} Fachbegriffe · ${q.due} fällig · ${q.n - q.seen} neu · ${S.settings.len} pro Runde</small></span><span class="ring">${ICON.bolt}</span></button>
+    <p class="muted small" style="margin:10px 2px 2px">Karteikarten: Begriff sehen, antippen zum Aufdecken, dann „Wusste ich“ oder „Nochmal“. Falsche kommen sofort wieder, richtige nach 1, 3, 7, 14 und 30 Tagen.</p>
+    <div class="list">${DECKS.map((d) => { const s = deckStats(d); if (!s.n) return ''; return `<div class="row" data-deck="${d}"><div class="grow"><div class="t">${d}</div><div class="s">${s.n} Karten · ${s.due} fällig · ${s.mastered} sicher · ${esc(DECK_INFO[d] || '')}</div><div class="bar" style="margin-top:6px"><i style="width:${(s.mastered / s.n) * 100}%"></i></div></div>${ICON.chevron}</div>`; }).join('')}</div>
+  </div>`;
+  $('#vquiz').onclick = () => startVocab('quiz', 'Fachbegriffe');
+  app.querySelectorAll('[data-deck]').forEach((r) => r.onclick = () => startVocab('cards', r.dataset.deck));
+}
+let vs = null;
+function startVocab(kind, deck, keys) {
+  const items = keys || pickVocab(deck, S.settings.len);
+  if (!items.length) { toast('Keine Karten in diesem Stapel'); return; }
+  vs = { sid: Date.now().toString(36), kind, deck, items, i: 0, res: {}, start: Date.now(), revealed: false, flip: items.map(() => Math.random() < 0.5) };
+  go('#/vsession');
+}
+function renderVSession() {
+  if (!vs) { go('#/vocab'); return; }
+  if (vs.i >= vs.items.length) { finishVocab(); return; }
+  const c = VCBY[vs.items[vs.i]]; if (!c) { vs.i++; renderVSession(); return; }
+  const n = vs.items.length, answered = Object.keys(vs.res).length;
+  const head = `<div class="topbar compact"><button class="iconbtn" id="qclose" aria-label="Beenden">${ICON.x}</button><div class="progress"><i style="width:${(answered / n) * 100}%"></i></div><div class="tb-right" style="min-width:56px;justify-content:flex-end"><span>${vs.i + 1}<span class="muted">/${n}</span></span></div><div style="width:44px"></div></div>`;
+  if (vs.kind === 'quiz') {
+    const v = c.quiz;
+    const opts = vs.opts || (vs.opts = shuffle([{ t: v.correct, ok: true }, { t: v.distractor, ok: false }]));
+    app.innerHTML = `<div class="view quiz">${head}
+      <div class="vocab-card"><div class="cat">${esc(c.category || 'Begriff')}</div><div class="term">${esc(c.term)}</div>${c.note ? `<div class="mnemo">${ICON.bulb}<span>${esc(c.note)}</span></div>` : ''}</div>
+      <div class="options">${opts.map((o, i) => `<button class="opt tall" data-ok="${o.ok}"><span class="letter">${'AB'[i]}</span><span>${esc(o.t)}</span></button>`).join('')}</div>
+      <div id="fb"></div>
+      <p class="hint">Antippen – geht automatisch weiter</p>
+    </div>`;
+    app.querySelectorAll('.opt').forEach((b) => b.onclick = () => {
+      if (vs.res[c.k]) return;
+      const ok = b.dataset.ok === 'true';
+      app.querySelectorAll('.opt').forEach((x) => { x.disabled = true; x.classList.add(x.dataset.ok === 'true' ? 'correct' : (x === b ? 'wrong' : 'dim')); });
+      vs.res[c.k] = { ok }; vUpdate(c.k, ok); save(); haptic(ok);
+      if (c.text) $('#fb').innerHTML = `<div class="feedback neutral"><div class="small" style="font-weight:600">${esc(c.text)}</div></div>`;
+      setTimeout(() => { vs.i++; vs.opts = null; renderVSession(); }, ok ? 700 : 1600);
+    });
+  } else {
+    const flipped = vs.flip[vs.i] && c.deck !== 'Wortbausteine';
+    const front = flipped ? c.text : c.term, back = flipped ? c.term : c.text;
+    app.innerHTML = `<div class="view quiz">${head}
+      <button class="flash${vs.revealed ? ' open' : ''}" id="flash">
+        <span class="cat">${esc(c.deck)}${c.category ? ' · ' + esc(c.category) : ''}</span>
+        <span class="${flipped ? 'text' : 'term'}">${esc(front)}</span>
+        ${vs.revealed ? `<span class="divider"></span><span class="${flipped ? 'term' : 'text'}">${esc(back)}</span>${c.note ? `<span class="mnemo">${ICON.bulb}<span>${esc(c.note)}</span></span>` : ''}` : `<span class="muted small">Antippen zum Aufdecken</span>`}
+      </button>
+      ${vs.revealed ? `<div class="rate"><button class="btn bad" id="no">${ICON.xs} Nochmal</button><button class="btn ok" id="yes">${ICON.check} Wusste ich</button></div>` : '<p class="hint">Erst überlegen, dann aufdecken</p>'}
+    </div>`;
+    const flash = $('#flash');
+    flash.onclick = () => { if (!vs.revealed) { vs.revealed = true; renderVSession(); } };
+    const rate = (ok) => { if (vs.res[c.k]) return; vs.res[c.k] = { ok }; vUpdate(c.k, ok); save(); haptic(ok); flash.classList.add(ok ? 'swipe-r' : 'swipe-l'); setTimeout(() => { vs.i++; vs.revealed = false; renderVSession(); }, 180); };
+    if (vs.revealed) { $('#no').onclick = () => rate(false); $('#yes').onclick = () => rate(true); }
+    let x0 = null, dx = 0;
+    flash.addEventListener('pointerdown', (e) => { x0 = e.clientX; dx = 0; }, { passive: true });
+    flash.addEventListener('pointermove', (e) => { if (x0 === null) return; dx = e.clientX - x0; if (Math.abs(dx) > 8) flash.style.transform = `translateX(${dx * 0.6}px) rotate(${dx / 40}deg)`; }, { passive: true });
+    const end = () => { if (x0 === null) return; flash.style.transform = ''; const d = dx; x0 = null; if (vs.revealed && d < -70) rate(false); else if (vs.revealed && d > 70) rate(true); };
+    flash.addEventListener('pointerup', end); flash.addEventListener('pointercancel', end);
+  }
+  $('#qclose').onclick = () => { if (answered === 0) { vs = null; go('#/vocab'); } else if (confirm('Runde beenden und auswerten?')) finishVocab(); };
+}
+function finishVocab() {
+  const items = vs.items.filter((k) => vs.res[k]);
+  const ok = items.filter((k) => vs.res[k].ok).length;
+  S.sessions.unshift({ sid: vs.sid, mode: 'begriffe', kind: vs.kind, deck: vs.deck, label: `${vs.deck} · ${vs.kind === 'quiz' ? 'Quiz' : 'Karten'}`, t: vs.start, dur: Date.now() - vs.start, n: items.length, ok, items: items.map((k) => ({ k, ok: vs.res[k].ok })) });
+  save(); vs = null; go('#/result');
+}
+function renderVocabSession(s) {
+  const pct = s.n ? Math.round((s.ok / s.n) * 100) : 0;
+  const wrong = s.items.filter((i) => !i.ok);
+  app.innerHTML = `<div class="view">${topbar(s.label)}
+    <div class="card scorecard"><div class="score">${s.ok}<small>/${s.n}</small></div><span class="pill ${pct >= 75 ? 'ok' : 'warn'}">${pct} %</span><div class="muted strong small">${fmtDate(s.t)} · ${fmtTime(Math.round(s.dur / 1000))}</div></div>
+    <div class="stack" style="margin-top:12px">
+      ${wrong.length ? `<button class="btn primary big" id="redo">Nochmal üben (${wrong.length})</button>` : ''}
+      <button class="btn" onclick="location.hash='#/vocab'"><span class="grow" style="text-align:center">Zurück zu den Begriffen</span></button>
+    </div>
+    <h2>Karten</h2>
+    <div class="list">${s.items.map((it) => { const c = VCBY[it.k]; if (!c) return ''; return `<div class="row"><span class="badge ${it.ok ? 'ok' : 'bad'}">${it.ok ? ICON.check : ICON.xs}</span><div class="grow"><div class="t">${esc(c.term)}</div><div class="s" style="white-space:normal">${esc(c.text)}</div></div></div>`; }).join('')}</div>
+  </div>`;
+  if ($('#redo')) $('#redo').onclick = () => startVocab(s.kind, s.deck, shuffle(wrong.map((i) => i.k)));
+}
+
 // ---------- settings ----------
 function renderSettings() {
   const s = S.settings;

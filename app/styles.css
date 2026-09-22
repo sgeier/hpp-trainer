@@ -166,3 +166,16 @@ input[type=text], input[type=password], input[type=number] { width: 100%; font: 
 .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 14px; font-weight: 700; z-index: 60; animation: fade .2s ease; }
 details summary { cursor: pointer; font-weight: 700; }
 a { color: var(--primary); }
+/* flashcards */
+.flash { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center; width: 100%; min-height: 300px; padding: 28px 20px; border: 0; border-radius: 24px; background: var(--card); color: var(--text); box-shadow: var(--shadow); cursor: pointer; will-change: transform; transition: transform .18s ease, opacity .18s ease; }
+.flash .cat { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .04em; text-transform: uppercase; }
+.flash .term { font-family: var(--serif); font-size: 36px; font-weight: 700; letter-spacing: -.02em; line-height: 1.08; }
+.flash .text { font-size: 18px; font-weight: 600; line-height: 1.4; white-space: pre-line; }
+.flash .divider { display: block; width: 48px; height: 3px; border-radius: 2px; background: var(--primary); margin: 4px 0; }
+.flash.open { border: 2px solid var(--line); }
+.flash.swipe-l { transform: translateX(-90px) rotate(-6deg); opacity: 0; }
+.flash.swipe-r { transform: translateX(90px) rotate(6deg); opacity: 0; }
+.rate { display: flex; gap: 10px; }
+.rate .btn { min-height: 60px; justify-content: center; font-size: 17px; }
+.btn.ok { background: var(--ok-soft); color: var(--ok-text); }
+.btn.bad { background: var(--bad-soft); color: var(--bad); }

@@ -85,7 +85,8 @@ def other_keys():
 
 
 def encrypt(data_bytes, passphrase):
-    salt = secrets.token_bytes(16)
+    # fixed salt: the app caches the derived key, so it must stay valid across data rebuilds
+    salt = hashlib.sha256(b"hpp-trainer-static-salt-v1").digest()[:16]
     key = hashlib.pbkdf2_hmac("sha256", passphrase.encode(), salt, 200_000, dklen=32)
     iv = secrets.token_bytes(12)
     ct = AESGCM(key).encrypt(iv, data_bytes, None)
@@ -100,6 +101,7 @@ def main():
     lika = json.load(open(os.path.join(OUT, "likamundi_raw.json")))
     ocr = json.load(open(os.path.join(OUT, "ocr_answers.json")))
     begriffe = json.load(open(os.path.join(OUT, "begriffe.json")))
+    cards = json.load(open(os.path.join(OUT, "cards.json")))
     report = []
 
     # --- other keys & disputes
@@ -168,11 +170,11 @@ def main():
         if a and d and b["term"]:
             vocab.append({"term": b["term"].strip(), "explanation": b.get("explanation", ""), "correct": a, "distractor": d,
                           "category": b.get("Kategorie/Bereich", ""), "mnemonic": b.get("Merkhilfe", ""), "seealso": b.get("siehe auch", "")})
-    report.append(f"vocab: {len(vocab)} terms")
+    report.append(f"vocab: {len(vocab)} terms, cards: {len(cards)}")
 
-    data = {"meta": {"built": __import__("datetime").date.today().isoformat(), "counts": {"official": len(official), "husum": len(husum), "likamundi": len(lika_out), "vocab": len(vocab)},
+    data = {"meta": {"built": __import__("datetime").date.today().isoformat(), "counts": {"official": len(official), "husum": len(husum), "likamundi": len(lika_out), "vocab": len(vocab), "cards": len(cards)},
                      "pass_mark": 21, "exam_size": 28},
-            "questions": allq, "vocab": vocab}
+            "questions": allq, "vocab": vocab, "cards": cards}
     raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
     json.dump(data, open(os.path.join(OUT, "data.json"), "w"), ensure_ascii=False)
     pp = open(os.path.join(HERE, ".passphrase")).read().strip()
