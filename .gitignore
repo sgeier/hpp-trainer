@@ -1,0 +1,6 @@
+pipeline/.passphrase
+pipeline/ocr/
+pipeline/tessdata/
+pipeline/out/
+.DS_Store
+node_modules/
