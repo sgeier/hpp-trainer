@@ -1,8 +1,8 @@
 // Cache-first service worker: the app shell and the encrypted data work offline.
 // Bump VERSION when files change; the app also fetches data.enc with the data version in the query string.
-const VERSION = '6138b66be1';
+const VERSION = 'c912ac3253';
 const CACHE = 'hpp-' + VERSION;
-const SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
+const SHELL = ['./', './index.html', './styles.css', './fonts/fonts.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
