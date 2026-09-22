@@ -201,3 +201,14 @@ a { color: var(--primary); }
 .trow .tv i { display: block; height: 100%; background: var(--ok); }
 .trow .tt { flex: 0 0 62px; text-align: right; }
 .trow .tt .pill { padding: 3px 8px; font-size: 11px; }
+/* true/false cards */
+.tfcard { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; min-height: 280px; padding: 22px 18px; border-radius: 24px; background: var(--card); box-shadow: var(--shadow); will-change: transform; transition: transform .18s ease, opacity .18s ease, background .15s; border: 2px solid transparent; }
+.tfcard .tfstem { font-size: 14px; line-height: 1.45; color: var(--muted); font-weight: 500; }
+.tfcard .tfstem b { color: var(--text); font-weight: 700; }
+.tfcard .tfstmt { font-size: 20px; line-height: 1.4; font-weight: 700; }
+.tfcard .tfstmt b { font-family: var(--serif); margin-right: 6px; }
+.tfcard.right { border-color: var(--ok); background: var(--ok-soft); }
+.tfcard.wrong { border-color: var(--bad); background: var(--bad-soft); }
+.tfcard.swipe-l { transform: translateX(-90px) rotate(-6deg); opacity: 0; }
+.tfcard.swipe-r { transform: translateX(90px) rotate(6deg); opacity: 0; }
+.tfverdict { min-height: 22px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

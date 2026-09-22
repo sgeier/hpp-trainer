@@ -1,6 +1,6 @@
 /* HPP Trainer – vanilla JS, no build step. All question content comes from data.enc (built by pipeline/build_data.py). */
 'use strict';
-const DATA_V = '257ec25c38';
+const DATA_V = '2c007d83ce';
 const LS_STATE = 'hpp.state.v1', LS_KEY = 'hpp.key.v1';
 const $ = (s, el = document) => el.querySelector(s);
 const app = $('#app');
@@ -34,6 +34,7 @@ const ICON = {
   download: _svg('<path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M4 21h16"></path>'),
   upload: _svg('<path d="M12 21V9"></path><path d="m7 14 5-5 5 5"></path><path d="M4 3h16"></path>'),
   trend: _svg('<path d="M3 17l6-6 4 4 8-8"></path><path d="M14 7h7v7"></path>', ' width="24" height="24"'),
+  swipe: _svg('<path d="M8 12H3"></path><path d="m6 9-3 3 3 3"></path><path d="M16 12h5"></path><path d="m18 9 3 3-3 3"></path><rect x="10" y="7" width="4" height="10" rx="1"></rect>'),
   trash: _svg('<path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 14h10l1-14"></path>'),
   info: _svg('<circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><path d="M12 8h.01"></path>'),
   lock: _svg('<rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path>'),
@@ -53,7 +54,7 @@ function loadState() {
   return withDefaults({});
 }
 function withDefaults(s) {
-  s.answers ||= []; s.vanswers ||= []; s.recent ||= []; s.srs ||= {}; s.sessions ||= []; s.flags ||= {}; s.vocab ||= {};
+  s.answers ||= []; s.vanswers ||= []; s.recent ||= []; s.tf ||= {}; s.tfanswers ||= []; s.srs ||= {}; s.sessions ||= []; s.flags ||= {}; s.vocab ||= {};
   s.settings = Object.assign({ len: 20, pools: { official: true, husum: false, likamundi: true }, theme: 'auto', haptic: true, examTimer: 0, vocabMode: 'quiz' }, s.settings || {});
   return s;
 }
@@ -78,7 +79,7 @@ async function idbSet(k, v) { try { const db = await idb(); db.transaction('kv',
 async function storeKey(raw) { const b = btoa(String.fromCharCode(...raw)); try { localStorage.setItem(LS_KEY, b); } catch (e) { /* ignore */ } await idbSet('key', b); try { await navigator.storage?.persist?.(); } catch (e) { /* ignore */ } }
 async function fetchEnc() { const r = await fetch('data.enc?v=' + DATA_V, { cache: 'force-cache' }); if (!r.ok) throw new Error('data.enc fehlt'); return r.json(); }
 function setData(d) {
-  DATA = d; Q = d.questions; QBY = {}; Q.forEach((q) => { QBY[q.id] = q; }); VOCAB = d.vocab || []; buildVocab(); SIDX = null; SUGG = null;
+  DATA = d; Q = d.questions; QBY = {}; Q.forEach((q) => { QBY[q.id] = q; }); VOCAB = d.vocab || []; buildVocab(); buildTF(); SIDX = null; SUGG = null;
 }
 async function boot() {
   applyTheme();
@@ -120,7 +121,7 @@ function route() {
   if (!DATA) return;
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   window.scrollTo(0, 0);
-  const views = { '': renderHome, home: renderHome, quiz: renderQuiz, result: renderResult, history: renderHistory, session: () => renderSession(arg), stats: renderStats, topics: renderTopics, vocab: renderVocab, vsession: renderVSession, search: renderSearch, trends: renderTrends, settings: renderSettings, about: renderAbout, review: () => renderReview(arg), flagged: renderFlagged };
+  const views = { '': renderHome, home: renderHome, quiz: renderQuiz, result: renderResult, history: renderHistory, session: () => renderSession(arg), stats: renderStats, topics: renderTopics, vocab: renderVocab, vsession: renderVSession, search: renderSearch, trends: renderTrends, tf: renderTF, settings: renderSettings, about: renderAbout, review: () => renderReview(arg), flagged: renderFlagged };
   (views[name] || renderHome)();
 }
 // every back arrow has an explicit target; 'history' uses the browser history with a fallback to home
@@ -157,7 +158,7 @@ function renderHome() {
   const all = poolQuestions(S.settings.pools);
   const due = all.filter((q) => { const r = S.srs[q.id]; return r && (r.box === 0 || r.due <= t); }).length;
   const fresh = all.filter((q) => !S.srs[q.id]).length;
-  const todayAns = S.answers.concat(S.vanswers).filter((a) => Math.floor(a.t / 86400000) === t);
+  const todayAns = S.answers.concat(S.vanswers, S.tfanswers).filter((a) => Math.floor(a.t / 86400000) === t);
   const todayOk = todayAns.filter((a) => a.ok).length;
   const streak = calcStreak();
   const mastered = Object.values(S.srs).filter((r) => r.box >= 3).length;
@@ -168,6 +169,7 @@ function renderHome() {
     <div class="statcard"><div><b class="num accent">${streak}</b><span>Tage in Folge</span></div><div><b class="num">${todayOk}<small>/${todayAns.length}</small></b><span>heute richtig</span></div><div><b class="num">${mastered}</b><span>sicher</span></div></div>
     <button class="cta" data-go="learn"><span class="grow"><b class="display">Lernen</b><small>${due} fällig · ${fresh} neu · ${S.settings.len} pro Runde</small></span><span class="ring">${ICON.bolt}</span></button>
     <button class="cta2" data-go="exam"><span class="ico-box">${ICON.cap}</span><span class="grow"><b>Prüfung simulieren</b><small>28 Originalfragen · 21 zum Bestehen</small></span>${ICON.chevron}</button>
+    <button class="cta2" data-go="tf"><span class="ico-box">${ICON.swipe}</span><span class="grow"><b>Richtig oder falsch?</b><small>${(DATA.statements || []).length} Aussagen aus Originalfragen · wischen</small></span>${ICON.chevron}</button>
     <div class="tiles four">${tile('#/topics', ICON.layers, 'Themen')}${tile('#/vocab', ICON.book, 'Begriffe')}${tile('husum', ICON.wave, 'Husum')}${tile('lika', ICON.bookOpen, 'Likamundi')}${tile('#/history', ICON.clock, 'Verlauf')}${tile('#/stats', ICON.chart, 'Statistik')}${tile('#/trends', ICON.trend, 'Trends')}${tile('#/search', ICON.search, 'Suche')}</div>
     ${Object.keys(S.flags).length ? `<button class="cta2" onclick="location.hash='#/flagged'"><span class="ico-box">${ICON.starFill}</span><span class="grow"><b>Markierte Fragen</b><small>${Object.keys(S.flags).length} markiert</small></span>${ICON.chevron}</button>` : ''}
     <p class="hint foot">${c.official} Originalfragen 2018–2026 · ${c.husum} Husum · ${c.likamundi} Likamundi · ${c.vocab + (c.cards || 0)} Begriffe</p>
@@ -177,11 +179,12 @@ function renderHome() {
     if (k === 'learn') startSession({ mode: 'lernen', ids: pickLearning(S.settings.pools, null, S.settings.len), feedback: true, label: 'Lernen' });
     if (k === 'exam') startSession({ mode: 'pruefung', ids: pickExam(), feedback: false, label: 'Prüfungssimulation' });
     if (k === 'husum') startSession({ mode: 'husum', ids: pickLearning({ husum: true }, null, S.settings.len), feedback: true, label: 'Husum' });
+    if (k === 'tf') startTF();
     if (k === 'lika') startSession({ mode: 'likamundi', ids: pickLearning({ likamundi: true }, null, S.settings.len), feedback: true, label: 'Likamundi' });
   });
 }
 function calcStreak() {
-  const days = new Set(S.answers.concat(S.vanswers).map((a) => Math.floor(a.t / 86400000)));
+  const days = new Set(S.answers.concat(S.vanswers, S.tfanswers).map((a) => Math.floor(a.t / 86400000)));
   let d = today(), n = 0; if (!days.has(d)) d--;
   while (days.has(d)) { n++; d--; }
   return n;
@@ -334,6 +337,7 @@ function renderResult() {
 function renderSession(sid, fresh = false) {
   const s = S.sessions.find((x) => x.sid === sid); if (!s) { go('#/history'); return; }
   if (s.mode === 'begriffe') { renderVocabSession(s, fresh); return; }
+  if (s.mode === 'aussagen') { renderTFSession(s, fresh); return; }
   const pct = s.n ? Math.round((s.ok / s.n) * 100) : 0;
   const exam = s.mode === 'pruefung';
   const full = s.n === (DATA.meta.exam_size || 28);
@@ -396,6 +400,8 @@ function renderStats() {
     <div class="card small">${['neu/falsch', '1× richtig', '2× richtig', '3× richtig', '4× richtig', 'sicher'].map((l, i) => `<div class="barrow" style="margin:3px 0"><span style="font-weight:600">${l}</span><span style="color:var(--text)">${boxes[i]}</span></div>`).join('')}<div class="muted" style="margin-top:6px">Falsche Fragen kommen sofort wieder, richtige nach 1, 3, 7, 14 und 30 Tagen.</div></div>
     <h2>Begriffe</h2>
     <div class="stack">${DECKS.map((d) => { const v = deckStats(d); if (!v.n) return ''; return `<div><div class="barrow"><span>${d}</span><span>${v.seen}/${v.n} gesehen · ${v.mastered} sicher</span></div><div class="bar"><i style="width:${(v.mastered / v.n) * 100}%"></i></div></div>`; }).join('')}</div>
+    <h2>Richtig oder falsch</h2>
+    <div class="card small">${(() => { const v = tfStats(); return `<div class="barrow"><span>Aussagen gesehen</span><span>${v.seen}/${v.n}</span></div><div class="bar" style="margin:6px 0"><i style="width:${(v.mastered / v.n) * 100}%"></i></div><div class="muted">${v.mastered} sicher · ${v.due} fällig</div>`; })()}</div>
     <h2>Prüfungen abgedeckt</h2>
     <div class="stack">${Object.entries(exams).map(([e, v]) => `<div><div class="barrow"><span>${esc(e)}</span><span>${v.seen}/${v.n} gesehen · ${v.ok} richtig</span></div><div class="bar"><i style="width:${(v.seen / v.n) * 100}%"></i></div></div>`).join('')}</div>
   </div>`;
@@ -644,6 +650,88 @@ function renderTrends() {
   $('#tV').onclick = () => startSession({ mode: 'lernen', ids: pickLearning({ official: true }, null, S.settings.len, (q) => q.vignette), feedback: true, label: 'Fallvignetten' });
 }
 
+
+// ---------- true/false statements (derived from Aussagenkombinationen, truth = official key) ----------
+let TF = [], TFBY = {}, ts = null;
+function buildTF() { TF = DATA.statements || []; TFBY = {}; TF.forEach((x) => { TFBY[x.id] = x; }); }
+function tfState(id) { const r = S.tf[id]; return r && typeof r.box === 'number' ? r : null; }
+function tfUpdate(id, ok) {
+  const r = tfState(id) || { box: 0, due: 0, seen: 0, wrong: 0 };
+  r.seen++; if (ok) r.box = Math.min(r.box + 1, 5); else { r.box = 0; r.wrong++; }
+  r.due = today() + BOX_DAYS[r.box]; r.last = Date.now(); S.tf[id] = r; S.tfanswers.push({ t: Date.now(), k: id, ok });
+}
+function pickTF(n, topic) {
+  const t = today(); const xs = TF.filter((x) => !topic || x.topic === topic);
+  const wrong = [], due = [], fresh = [], rest = [];
+  xs.forEach((x) => { const r = tfState(x.id); if (!r) fresh.push(x); else if (r.box === 0) wrong.push(x); else if (r.due <= t) due.push(x); else rest.push(x); });
+  shuffle(wrong); shuffle(due); shuffle(fresh); rest.sort((a, b) => tfState(a.id).due - tfState(b.id).due);
+  // spread statements of the same question apart
+  const out = [], seenQ = new Set(), later = [];
+  for (const x of [...wrong, ...due, ...fresh, ...rest]) { if (out.length >= n) break; if (seenQ.has(x.qid)) { later.push(x); continue; } seenQ.add(x.qid); out.push(x); }
+  for (const x of later) { if (out.length >= n) break; out.push(x); }
+  return out.map((x) => x.id);
+}
+function tfStats() { const t = today(); let seen = 0, mastered = 0, due = 0; TF.forEach((x) => { const r = tfState(x.id); if (r) { seen++; if (r.box >= 3) mastered++; if (r.box === 0 || r.due <= t) due++; } }); return { n: TF.length, seen, mastered, due }; }
+function startTF(ids, label) {
+  const items = ids || pickTF(Math.max(20, S.settings.len));
+  if (!items.length) { toast('Keine Aussagen'); return; }
+  ts = { sid: Date.now().toString(36), items, i: 0, res: {}, start: Date.now(), label: label || 'Richtig oder falsch' };
+  go('#/tf');
+}
+function renderTF() {
+  if (!ts) { go('#/home'); return; }
+  if (ts.i >= ts.items.length) { finishTF(); return; }
+  const x = TFBY[ts.items[ts.i]]; if (!x) { ts.i++; renderTF(); return; }
+  const n = ts.items.length, answered = Object.keys(ts.res).length;
+  app.innerHTML = `<div class="view quiz">
+    <div class="topbar compact"><button class="iconbtn" id="qclose" aria-label="Beenden">${ICON.x}</button><div class="progress"><i style="width:${(answered / n) * 100}%"></i></div><div class="tb-right" style="min-width:56px;justify-content:flex-end"><span>${ts.i + 1}<span class="muted">/${n}</span></span></div><div style="width:44px"></div></div>
+    <div class="tfcard" id="tfcard">
+      <div class="qmeta">${esc(x.exam)} · ${esc(x.topic)}</div>
+      <div class="tfstem">${stemHTML(x.stem)}</div>
+      <div class="tfstmt"><b class="accent">${x.n}</b> ${esc(x.text)}</div>
+      <div class="tfverdict" id="tfv"></div>
+    </div>
+    <div class="rate"><button class="btn bad" id="no">${ICON.xs} Falsch</button><button class="btn ok" id="yes">${ICON.check} Richtig</button></div>
+    <p class="hint">Nach links wischen = falsch · nach rechts = richtig</p>
+  </div>`;
+  const card = $('#tfcard');
+  const answer = (saidTrue) => {
+    if (ts.res[x.id]) return;
+    const ok = saidTrue === x.truth; ts.res[x.id] = { a: saidTrue, ok }; tfUpdate(x.id, ok); save(); haptic(ok);
+    card.classList.add(ok ? 'right' : 'wrong');
+    $('#tfv').innerHTML = `<span class="pill ${ok ? 'ok' : 'bad'}">${ok ? 'Richtig erkannt' : 'Daneben'}</span> <span class="small strong">Die Aussage ist ${x.truth ? 'richtig' : 'falsch'}.</span> <a href="#/review/${x.qid}" class="small">Frage ansehen</a>`;
+    $('#no').disabled = $('#yes').disabled = true;
+    setTimeout(() => { if (!ts) return; card.classList.add(saidTrue ? 'swipe-r' : 'swipe-l'); setTimeout(() => { if (!ts) return; ts.i++; renderTF(); }, 160); }, ok ? 650 : 1500);
+  };
+  $('#no').onclick = () => answer(false); $('#yes').onclick = () => answer(true);
+  let x0 = null, dx = 0;
+  card.addEventListener('pointerdown', (e) => { x0 = e.clientX; dx = 0; }, { passive: true });
+  card.addEventListener('pointermove', (e) => { if (x0 === null) return; dx = e.clientX - x0; if (Math.abs(dx) > 8) card.style.transform = `translateX(${dx * 0.6}px) rotate(${dx / 40}deg)`; }, { passive: true });
+  const end = () => { if (x0 === null) return; card.style.transform = ''; const d = dx; x0 = null; if (d < -70) answer(false); else if (d > 70) answer(true); };
+  card.addEventListener('pointerup', end); card.addEventListener('pointercancel', end);
+  $('#qclose').onclick = () => { if (answered === 0) { ts = null; go('#/home'); } else if (confirm('Runde beenden und auswerten?')) finishTF(); };
+}
+function finishTF() {
+  const items = ts.items.filter((id) => ts.res[id]);
+  const ok = items.filter((id) => ts.res[id].ok).length;
+  S.sessions.unshift({ sid: ts.sid, mode: 'aussagen', label: ts.label, t: ts.start, dur: Date.now() - ts.start, n: items.length, ok, items: items.map((id) => ({ k: id, a: ts.res[id].a, ok: ts.res[id].ok })) });
+  save(); ts = null; go('#/result');
+}
+function renderTFSession(s, fresh = false) {
+  const pct = s.n ? Math.round((s.ok / s.n) * 100) : 0;
+  const wrong = s.items.filter((i) => !i.ok);
+  app.innerHTML = `<div class="view">${topbar(s.label, '', fresh ? '#/home' : '#/history')}
+    <div class="card scorecard"><div class="score">${s.ok}<small>/${s.n}</small></div><span class="pill ${pct >= 75 ? 'ok' : 'warn'}">${pct} %</span><div class="muted strong small">${fmtDate(s.t)} · ${fmtTime(Math.round(s.dur / 1000))}</div></div>
+    <div class="stack" style="margin-top:12px">
+      ${wrong.length ? `<button class="btn primary big" id="redo">Falsche nochmal (${wrong.length})</button>` : ''}
+      <button class="btn" onclick="location.hash='#/home'"><span class="grow" style="text-align:center">Zurück zur Übersicht</span></button>
+    </div>
+    <h2>Aussagen</h2>
+    <div class="list">${s.items.map((it) => { const x = TFBY[it.k]; if (!x) return ''; return `<div class="row" onclick="location.hash='#/review/${x.qid}'"><span class="badge ${it.ok ? 'ok' : 'bad'}">${it.ok ? ICON.check : ICON.xs}</span><div class="grow"><div class="t" style="white-space:normal">${esc(x.text)}</div><div class="s">Aussage ist ${x.truth ? 'richtig' : 'falsch'} · ${esc(x.exam)}</div></div>${ICON.chevron}</div>`; }).join('')}</div>
+  </div>`;
+  if ($('#redo')) $('#redo').onclick = () => startTF(shuffle(wrong.map((i) => i.k)), 'Aussagen wiederholen');
+}
+
 // ---------- settings ----------
 function renderSettings() {
   const s = S.settings;
@@ -683,6 +771,7 @@ function renderAbout() {
       <p><b>Lösungen</b> stammen nicht von den Behörden, sondern von Schulen (Institut Ehlert, heilpraktiker-akademie.de, ON, Margit Allmeroth, Likamundi) und sind „ohne Gewähr“. Wo sich die Schlüssel widersprechen, zeigt die App eine Warnung mit allen Lesarten.</p>
       <p><b>Erklärungen</b> gibt es nur, wo eine Quelle vorliegt (Likamundi-Kommentare). Nichts in dieser App wurde frei formuliert.</p>
       <p><b>Begriffe</b>: Bei den Fachbegriffen stammen die falschen Antworten aus der Excel-Liste. Bei den anderen Stapeln sind die falschen Antworten echte Erklärungen anderer Begriffe derselben Liste, zufällig gewählt und gegen zu ähnliche Texte gefiltert.</p>
+      <p><b>Richtig oder falsch</b>: Die Aussagen sind wörtlich die nummerierten Aussagen der Aussagenkombinationen; ob eine Aussage richtig ist, folgt exakt aus der Lösung der jeweiligen Prüfungsfrage. Fragen mit uneinheitlichen Schlüsseln oder verneinter Fragestellung sind ausgelassen.</p>
       <p><b>Themen</b> sind automatisch per Stichwort zugeordnet und können daneben liegen.</p>
       <p><b>Wertung</b>: 1 Punkt pro vollständig richtig beantworteter Frage, 21 von 28 zum Bestehen.</p>
       <p><b>Speicherung</b>: Dein Fortschritt liegt nur auf diesem Gerät (Browser-Speicher). Sicherung über Einstellungen ▸ Exportieren.</p>

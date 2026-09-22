@@ -182,6 +182,36 @@ def main():
     tc = collections.Counter((q["pool"], q["topic"]) for q in allq)
     report.append("topics (official): " + ", ".join(f"{t}={n}" for (p, t), n in sorted(tc.items()) if p == "official"))
 
+    # --- true/false statements derived from Aussagenkombination questions (truth = official key, nothing authored)
+    RE_OPT = re.compile(r"^Nur die Aussagen? (.+?) (?:ist|sind) richtig\.?$", re.I)
+    statements, skipped = [], collections.Counter()
+    for q in official:
+        if q["type"] != "kombination" or len(q["answer"]) != 1 or len(q["statements"]) < 3:
+            continue
+        if q.get("disputed"):
+            skipped["disputed"] += 1; continue
+        if re.search(r"\bnicht\b|\bfalsch\b|\bkein", q["stem"].lower()):
+            skipped["negated stem"] += 1; continue
+        opt = q["options"].get(q["answer"][0], "").strip()
+        n = len(q["statements"])
+        if re.match(r"^Alle Aussagen (?:ist|sind) richtig\.?$", opt, re.I):
+            true = set(range(1, n + 1))
+        elif re.match(r"^Keine der Aussagen ist richtig\.?$", opt, re.I):
+            true = set()
+        else:
+            m = RE_OPT.match(opt)
+            if not m:
+                skipped["option pattern"] += 1; continue
+            true = set(int(d) for d in re.findall(r"\b([1-9])\b", m.group(1)))
+            if not true or max(true) > n:
+                skipped["digits"] += 1; continue
+        for i, text in enumerate(q["statements"], 1):
+            if len(text) < 8:
+                continue
+            statements.append({"id": f"{q['id']}-s{i}", "qid": q["id"], "n": i, "stem": q["stem"], "text": text, "truth": i in true,
+                               "exam": q["exam"], "topic": q["topic"]})
+    report.append(f"statements: {len(statements)} true/false cards ({sum(1 for x in statements if x['truth'])} true), skipped questions {dict(skipped)}")
+
     # --- vocabulary quiz
     vocab = []
     for b in begriffe:
@@ -191,9 +221,9 @@ def main():
                           "category": b.get("Kategorie/Bereich", ""), "mnemonic": b.get("Merkhilfe", ""), "seealso": b.get("siehe auch", "")})
     report.append(f"vocab: {len(vocab)} terms, cards: {len(cards)}")
 
-    data = {"meta": {"built": __import__("datetime").date.today().isoformat(), "counts": {"official": len(official), "husum": len(husum), "likamundi": len(lika_out), "vocab": len(vocab), "cards": len(cards)},
+    data = {"meta": {"built": __import__("datetime").date.today().isoformat(), "counts": {"official": len(official), "husum": len(husum), "likamundi": len(lika_out), "vocab": len(vocab), "cards": len(cards), "statements": len(statements)},
                      "pass_mark": 21, "exam_size": 28},
-            "questions": allq, "vocab": vocab, "cards": cards}
+            "questions": allq, "vocab": vocab, "cards": cards, "statements": statements}
     raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
     json.dump(data, open(os.path.join(OUT, "data.json"), "w"), ensure_ascii=False)
     pp = open(os.path.join(HERE, ".passphrase")).read().strip()
