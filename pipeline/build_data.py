@@ -32,6 +32,21 @@ TOPICS = [  # (name, keywords) – first match on highest score; substring match
 ]
 
 
+# second pass: split "Therapieverfahren" by school of therapy (same keyword method, same caveat)
+SUBTOPICS = [
+    ("Verhaltenstherapie / KVT", ["verhaltenstherap", "kognitiv", "konditionierung", "exposition", "desensibilisierung", "verstärk", "modelllernen", "sokratisch", "rational-emotiv", "ellis", "beck", "sorkc", "konfrontation", "flooding", "token", "habituation", "löschung", "achtsamkeit", "acceptance", "dialektisch", "dbt", "schematherapie", "selbstinstruktion", "gedankenstopp", "reizüberflutung", "selbstverbalisation", "problemlöse", "kognitive umstrukturierung", "verhaltensanalyse", "lernen am modell", "operant", "klassische konditionierung", "stimulus", "reaktionsverhinderung", "verhaltensexperiment"]),
+    ("Psychodynamische Verfahren", ["psychoanaly", "tiefenpsycholog", "freud", "adler", "jung", "übertragung", "gegenübertragung", "widerstand", "abwehrmechanism", "katathym", "über-ich", "ödip", "deutung", "freie assoziation", "traumdeutung", "instanzen", "libido", "psychosexuell", "individualpsycholog", "analytische psychotherapie", "regression", "verdrängung", "projektion", "sublimierung", "reaktionsbildung", "fehlleistung", "neurosenlehre", "objektbeziehung"]),
+    ("Humanistisch & Systemisch", ["gesprächspsychotherapie", "rogers", "klientenzentriert", "personzentriert", "empathie", "kongruenz", "wertschätzung", "echtheit", "gestalttherapie", "perls", "psychodrama", "moreno", "logotherapie", "frankl", "existenz", "selbstaktualisierung", "leerer stuhl", "transaktionsanalyse", "berne", "systemisch", "familientherapie", "zirkulär", "genogramm", "skulptur", "reframing", "lösungsorientiert", "wunderfrage", "paradoxe", "mehrgenerationen", "familienaufstellung"]),
+]
+
+
+def sub_topic(q):
+    t = fulltext(q)
+    scores = [(sum(t.count(k) for k in kws), name) for name, kws in SUBTOPICS]
+    best = max(scores)
+    return best[1] if best[0] > 0 else "Therapie allgemein & Sonstige"
+
+
 def norm(s):
     s = unicodedata.normalize("NFKC", s).lower()
     s = re.sub(r"[^a-z0-9äöüß ]+", " ", s)
@@ -160,6 +175,8 @@ def main():
     VIG = re.compile(r"\d+\s*-?\s*jährig|Patient|Klient|stellt sich|in Ihrer Praxis|berichtet|Frau [A-Z]\.|Herr [A-Z]\.", re.I)
     for q in allq:
         q["topic"] = tag_topic(q)
+        if q["topic"] == "Therapieverfahren":
+            q["topic"] = sub_topic(q)
         q["vignette"] = bool(VIG.search(q["stem"]))
         q.setdefault("disputed", False); q.setdefault("expl", {}); q.setdefault("general", ""); q.setdefault("expl_source", "")
     tc = collections.Counter((q["pool"], q["topic"]) for q in allq)
